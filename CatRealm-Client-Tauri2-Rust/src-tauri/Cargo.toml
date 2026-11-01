@@ -1,6 +1,6 @@
 [package]
 name = "catrealm-tauri"
-version = "1.9.2"
+version = "1.9.3"
 description = "CatRealm Sushi native desktop client"
 edition = "2021"
 
@@ -61,6 +61,13 @@ native-tls = "0.2"
 # Same idea on Linux: WebKitGTK denies unhandled permission requests, so grant
 # mic/camera + device-info to the app origin. Version pinned to wry's resolved
 # webkit2gtk so the WebView type matches across the with_webview() boundary.
+# LiveKit's Rust SDK powers Linux native voice (src/native_voice.rs) and
+# Windows native screen publishing (src/screen_publish.rs). rustls keeps system
+# OpenSSL off the builder; libwebrtc arrives as LiveKit's prebuilt static
+# archive via webrtc-sys' build script.
+[target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
+livekit = { version = "0.7", features = ["rustls-tls-native-roots"], optional = true }
+
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = { version = "=2.0.2", features = ["v2_38"] }
 gdk = "=0.18.2"
@@ -68,16 +75,13 @@ gtk = "=0.18.2"
 libc = "0.2"
 # Native voice backend (src/native_voice.rs): distro WebKitGTK compiles WebRTC
 # out entirely, so LiveKit voice runs through the Rust SDK in-process instead.
-# rustls keeps system OpenSSL off the builder; libwebrtc arrives as LiveKit's
-# prebuilt static archive via webrtc-sys' build script.
-livekit = { version = "0.7", features = ["rustls-tls-native-roots"], optional = true }
 nnnoiseless = { version = "=0.5.2", default-features = false }
 jpeg-encoder = "=0.7.0"
 futures-util = "0.3"
 
 [features]
-# native-voice only resolves to real code on Linux (the dependency lives under
-# the linux target table); it stays a no-op flag elsewhere. Kept default-on so
+# native-voice enables the LiveKit SDK on Linux (voice) and Windows (screen
+# publishing); it stays a no-op flag elsewhere. Kept default-on so
 # CI builds ship it, and detachable (--no-default-features) if the libwebrtc
 # prebuilt ever breaks the self-hosted builder.
 default = ["native-voice"]
@@ -92,3 +96,9 @@ native-voice = ["dep:livekit"]
 lto = "thin"
 codegen-units = 16
 strip = true
+
+# LiveKit 0.7.53 with a stereo audio publish option, which upstream lacks (its
+# add-track request never sets TF_STEREO, so screen-share audio went out mono).
+# See vendor/livekit/PATCHED.md before upgrading livekit.
+[patch.crates-io]
+livekit = { path = "vendor/livekit" }

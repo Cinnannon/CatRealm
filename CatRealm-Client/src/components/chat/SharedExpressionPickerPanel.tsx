@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { GifPickerPanel } from './GifPickerPanel';
 
@@ -6,6 +7,21 @@ type PickerTab = 'emojis' | 'stickers';
 
 const MOBILE_MAX_WIDTH = 767; // below Tailwind's `md`
 const MOBILE_GUTTER_PX = 8;
+
+const PANEL_GAP_PX = 8;
+
+// The panel renders into document.body so no chat column, sliding sidebar
+// transform or overflow-hidden wrapper can clip it. Composers' outside-click
+// handlers use this to treat clicks inside the panel as inside the picker.
+export function isInsideExpressionPicker(target: EventTarget | null): boolean {
+  return target instanceof Element && !!target.closest('[data-expression-picker-panel]');
+}
+
+// Keeps a full-width panel on screen: anchored at the picker button's left
+// edge, moved left only as far as needed.
+export function clampPanelLeft(anchorLeft: number, panelWidth: number, viewportWidth: number): number {
+  return Math.max(MOBILE_GUTTER_PX, Math.min(anchorLeft, viewportWidth - MOBILE_GUTTER_PX - panelWidth));
+}
 
 interface SharedExpressionPickerPanelProps {
   className?: string;
@@ -54,38 +70,42 @@ export function SharedExpressionPickerPanel({
     onPickerTabChange(tab);
   };
 
-  const containerClassName = isFloating
-    ? `fixed z-50 rounded-lg border border-border bg-bg-elevated shadow-xl ${className}`.trim()
-    : `absolute bottom-full left-0 z-20 mb-2 rounded-lg border border-border bg-bg-elevated shadow-xl ${className}`.trim();
-  // The anchored panel hangs off the narrow picker-button wrapper, so on phones stretch it
-  // across the viewport instead of letting it shrink to the button's width.
+  const containerClassName = `fixed z-50 rounded-lg border border-border bg-bg-elevated shadow-xl ${className}`.trim();
+  // Anchored panels sit just above the picker button's wrapper (where the
+  // zero-size anchor below is rendered), at their full width; on phones they
+  // stretch across the viewport instead.
+  const anchorRef = useRef<HTMLSpanElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [mobileStyle, setMobileStyle] = useState<CSSProperties | undefined>(undefined);
+  const [anchoredStyle, setAnchoredStyle] = useState<CSSProperties | undefined>(undefined);
   useLayoutEffect(() => {
     if (isFloating) return;
     const place = () => {
-      const anchor = containerRef.current?.offsetParent;
-      if (!anchor || window.innerWidth > MOBILE_MAX_WIDTH) {
-        setMobileStyle(undefined);
+      const wrapper = anchorRef.current?.offsetParent;
+      const panel = containerRef.current;
+      if (!wrapper || !panel) return;
+      const rect = wrapper.getBoundingClientRect();
+      const bottom = window.innerHeight - rect.top + PANEL_GAP_PX;
+      if (window.innerWidth <= MOBILE_MAX_WIDTH) {
+        setAnchoredStyle({ left: MOBILE_GUTTER_PX, bottom, width: window.innerWidth - MOBILE_GUTTER_PX * 2, maxWidth: 'none' });
         return;
       }
-      setMobileStyle({
-        left: MOBILE_GUTTER_PX - anchor.getBoundingClientRect().left,
-        width: window.innerWidth - MOBILE_GUTTER_PX * 2,
-        maxWidth: 'none',
-      });
+      setAnchoredStyle({ left: clampPanelLeft(rect.left, panel.offsetWidth, window.innerWidth), bottom });
     };
     place();
     window.addEventListener('resize', place);
-    return () => window.removeEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    return () => {
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
+    };
   }, [isFloating]);
 
   const containerStyle = isFloating
     ? { left: floatingPosition!.x, top: floatingPosition!.y }
-    : mobileStyle;
+    : anchoredStyle;
 
-  return (
-    <div ref={containerRef} className={containerClassName} style={containerStyle}>
+  const panel = (
+    <div ref={containerRef} data-expression-picker-panel="" className={containerClassName} style={containerStyle}>
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
         <div className="flex items-center gap-2 text-xs">
           {headerPrefix}
@@ -151,5 +171,12 @@ export function SharedExpressionPickerPanel({
         )}
       </div>
     </div>
+  );
+
+  return (
+    <>
+      {!isFloating && <span ref={anchorRef} aria-hidden="true" className="absolute left-0 top-0 h-0 w-0" />}
+      {createPortal(panel, document.body)}
+    </>
   );
 }

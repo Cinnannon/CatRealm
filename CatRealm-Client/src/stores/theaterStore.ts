@@ -8,7 +8,7 @@ import { clearRealtimeReconnectTarget, getRealtimeReconnectTarget } from '../lib
 import { playNotificationSound } from '../lib/notificationSounds';
 import { useMediaStore } from './mediaStore';
 import type { TheaterQueueItem, TheaterPlaybackState, TheaterUser } from '../types';
-import { isHttpGatewayRealm } from '../lib/httpRealmGateway';
+import { checkInsecureRealmMedia } from '../lib/insecureRealmMedia';
 
 type TheaterReaction = {
   id: string;
@@ -48,7 +48,7 @@ interface TheaterState {
   speakingByUser: Record<string, boolean>;
 
   // Actions
-  joinTheater: (channelId: string, channelName?: string) => Promise<void>;
+  joinTheater: (channelId: string, channelName?: string, options?: { acknowledgedInsecureRealm?: boolean }) => Promise<void>;
   leaveTheater: () => void;
   fetchQueue: (channelId: string) => Promise<void>;
   addToQueue: (channelId: string, url: string) => Promise<void>;
@@ -225,11 +225,18 @@ export const useTheaterStore = create<TheaterState>((set, get) => ({
     return durationMs !== null ? Math.min(expectedMs, durationMs) : expectedMs;
   },
 
-  joinTheater: async (channelId, channelName) => {
+  joinTheater: async (channelId, channelName, options = {}) => {
     get().addDebugEvent(`join request channel=${channelId}`);
     const serverUrl = getCurrentServerUrl();
-    if (isHttpGatewayRealm(serverUrl)) {
-      set({ error: 'Theater is not available through the HTTP realm gateway yet.' });
+    const insecureRealm = await checkInsecureRealmMedia(
+      serverUrl, 'theater', useMediaStore.getState().probeSelfHostCapability, options.acknowledgedInsecureRealm === true,
+    );
+    if (insecureRealm === 'unavailable') {
+      set({ error: 'Theater is not available through the HTTP realm gateway without Central Fallback.' });
+      return;
+    }
+    if (insecureRealm === 'confirm') {
+      useUIStore.getState().openModal('insecureRealmMedia', { context: 'theater', channelId, channelName: channelName ?? null });
       return;
     }
     const socket = serverUrl ? getSocket(serverUrl) : null;

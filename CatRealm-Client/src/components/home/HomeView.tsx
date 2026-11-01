@@ -44,7 +44,7 @@ import { ComposerSelfPreview } from '../chat/ComposerSelfPreview';
 import { ComposerSingleAttachmentChip } from '../chat/ComposerAttachments';
 import { ComposerMentionSuggestionList } from '../chat/ComposerMentionSuggestionList';
 import { ScheduleMessageModal } from '../chat/ScheduleMessageModal';
-import { SharedExpressionPickerPanel } from '../chat/SharedExpressionPickerPanel';
+import { SharedExpressionPickerPanel, isInsideExpressionPicker } from '../chat/SharedExpressionPickerPanel';
 import {
   SharedDefaultEmojiPicker,
   SharedEmotePickerGrid,
@@ -849,7 +849,7 @@ export function HomeView({ tab, setTab, onMobileBack }: HomeViewProps) {
     }
     const onPointerDown = (event: MouseEvent) => {
       if (!groupPickerRef.current) return;
-      if (groupPickerRef.current.contains(event.target as Node)) return;
+      if (groupPickerRef.current.contains(event.target as Node) || isInsideExpressionPicker(event.target)) return;
       setGroupPickerOpen(false);
     };
     window.addEventListener('mousedown', onPointerDown);

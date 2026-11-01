@@ -13,7 +13,7 @@ import { logVoiceDebug, logVoiceDebugAwaitable } from '../lib/voiceDebugConsole'
 import { isMediaCoreActiveForVoice, useMediaStore } from './mediaStore';
 import { captureScreenShare } from '../lib/desktopCapture';
 import type { RtcE2eeStatus } from '../lib/rtcE2ee';
-import { isHttpGatewayRealm } from '../lib/httpRealmGateway';
+import { checkInsecureRealmMedia } from '../lib/insecureRealmMedia';
 import {
   CONNECT_TO_VOICE_PERMISSION_MESSAGE,
   isConnectToVoicePermissionError,
@@ -71,7 +71,7 @@ type VoiceShareOptions = {
   audioDeviceId?: string | null;
   audioDeviceLabel?: string | null;
 };
-type VoiceJoinOptions = { allowNoMicrophone?: boolean };
+type VoiceJoinOptions = { allowNoMicrophone?: boolean; acknowledgedInsecureRealm?: boolean };
 
 // Kept for socket binding compat — useSocket.ts passes this type to handleSignal.
 export type VoiceSignal =
@@ -775,16 +775,27 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
 
   joinVoice: async (channelId, options = {}) => {
     if (!channelId) return;
-    if (isHttpGatewayRealm(useServerStore.getState().activeServerUrl)) {
-      set({ error: 'Voice is not available through the HTTP realm gateway yet.', notice: null });
-      return;
-    }
     const allowNoMicrophone = options.allowNoMicrophone === true;
     const userPermissions = useAuthStore.getState().user?.permissions;
     const channel = useChannelStore.getState().channels.find((entry) => entry.id === channelId);
     const channelPermissions = channel?.effective_permissions;
     if (!hasChannelPermission(userPermissions, channelPermissions, PERMISSIONS.CONNECT_TO_VOICE)) {
       set({ error: 'You do not have permission to join this voice channel.', notice: null });
+      return;
+    }
+    if (get().pendingChannelId === channelId || get().activeChannelId === channelId) return;
+    const targetUrl = useAuthStore.getState().user?.accountType === 'central'
+      ? useServerStore.getState().activeServerUrl
+      : useAuthStore.getState().serverUrl;
+    const insecureRealm = await checkInsecureRealmMedia(
+      targetUrl, 'voice', useMediaStore.getState().probeSelfHostCapability, options.acknowledgedInsecureRealm === true,
+    );
+    if (insecureRealm === 'unavailable') {
+      set({ error: 'Voice is not available through the HTTP realm gateway without Central Fallback.', notice: null });
+      return;
+    }
+    if (insecureRealm === 'confirm') {
+      useUIStore.getState().openModal('insecureRealmMedia', { context: 'voice', channelId, channelName: channel?.name ?? null });
       return;
     }
     const state = get();

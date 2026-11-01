@@ -66,6 +66,7 @@ import type { DMComposerCoreHandle } from './DMComposerCore';
 import { ChatSearchPanel } from './ChatSearchPanel';
 import { ScheduleMessageModal } from './ScheduleMessageModal';
 import { DMComposer } from './DMComposer';
+import { isInsideExpressionPicker } from './SharedExpressionPickerPanel';
 import { ComposerSelfPreview } from './ComposerSelfPreview';
 import { VoiceMessageRecorder } from './VoiceMessageRecorder';
 import { VoiceAutoDeleteModal } from './VoiceAutoDeleteModal';
@@ -727,7 +728,7 @@ const handlePrivacyModeSelection = useCallback((privacyMode: boolean) => {
     }
     const onPointerDown = (event: MouseEvent) => {
       if (!pickerRef.current) return;
-      if (pickerRef.current.contains(event.target as Node)) return;
+      if (pickerRef.current.contains(event.target as Node) || isInsideExpressionPicker(event.target)) return;
       setPickerOpen(false);
     };
     window.addEventListener('mousedown', onPointerDown);

@@ -24,7 +24,9 @@ import { getSocket } from '../lib/socket';
 import { useSettingsStore } from './settingsStore';
 import { useUIStore } from './uiStore';
 import { logVoiceDebug } from '../lib/voiceDebugConsole';
-import { getScreenShareAudioStatus, isTauriDesktop, type ScreenShareAudioStatus } from '../lib/desktopCapture';
+import { applyScreenCaptureConstraints, getScreenShareAudioStatus, isTauriDesktop, type ScreenShareAudioStatus } from '../lib/desktopCapture';
+import { targetCaptureFps } from '../lib/screenShareCaptureFps';
+import { canReceiveVideoMimeType, knownH264HardwareEncode, probeH264HardwareEncode } from '../lib/screenShareCodecSupport';
 import { playRemoteParticipantAudio, type ManagedRemoteAudioPlayback } from '../lib/mediaPlayback';
 import { playNotificationSound, type SoundType } from '../lib/notificationSounds';
 import { useBlockedUsersStore } from './blockedUsersStore';
@@ -178,6 +180,9 @@ type MediaParticipantState = {
   name: string | null;
   metadata: Record<string, unknown> | null;
   connectionQuality: ConnectionQuality;
+  // Set when this participant shares a screen in a codec this browser can't
+  // decode, so the UI can say why the share never arrives.
+  unplayableScreenShareMimeType?: string;
 };
 
 export type NativeVideoFrame = {
@@ -258,6 +263,30 @@ function toStatusLabel(state: ConnectionState, capability?: MediaCapability | nu
   if (state === ConnectionState.Connecting) return 'Connecting';
   if (state === ConnectionState.Reconnecting || state === ConnectionState.SignalReconnecting) return 'Reconnecting';
   return 'Disconnected';
+}
+
+// A realm without its own LiveKit borrows Central's. Screen shares there are
+// held to the same 'catrealm' bitrate ceiling Central enforces for DM shares.
+export function isCentralMediaFallback(capability: MediaCapability | null | undefined, context: MediaContext) {
+  return !!capability && !capability.enabled && capability.liveKitFallbackContexts?.includes(context) === true;
+}
+
+// Whether the local screen share is live and held to the Central ceiling.
+export function isScreenShareCentralLimited(state: MediaState) {
+  const session = state.activeSession;
+  return state.isScreenShareEnabled && !!session
+    && isCentralMediaFallback(state.capabilityByServer[session.serverUrl], session.context);
+}
+
+function resolveScreenSharePreset(
+  session: MediaSession | null | undefined,
+  presetOverride?: 'quality' | 'efficiency' | 'compressed' | 'catrealm',
+) {
+  if (presetOverride) return presetOverride;
+  if (session && isCentralMediaFallback(useMediaStore.getState().capabilityByServer[session.serverUrl], session.context)) {
+    return 'catrealm';
+  }
+  return useSettingsStore.getState().screenshareQualityPreset;
 }
 
 function hasLiveKitPathForContext(capability: MediaCapability | null | undefined, context: MediaContext) {
@@ -857,19 +886,6 @@ function startActiveScreenShareCaptureProbe(
   scheduleFrameCallback();
 }
 
-// Tiered capture fps matched to GCC estimate. Prevents pacer buffer growth and
-// A/V desync — captures only as many frames as the network can actually drain.
-// Very low tiers matter for capture card / device sources (e.g. Elgato) where
-// the GCC cold-starts at 100-300 Kbps; at that bitrate a single 1440p keyframe
-// takes 10-30 seconds so we must cut fps to near-zero until bandwidth ramps up.
-const CAPTURE_FPS_TIERS = [
-  { minKbps: 8_000, fps: 60 },
-  { minKbps: 4_000, fps: 30 },
-  { minKbps: 1_500, fps: 15 },
-  { minKbps:   400, fps:  5 },
-  { minKbps:     0, fps:  2 },
-] as const;
-
 // Resolution downscale thresholds. When the GCC estimate is too low to sustain
 // the source resolution, we temporarily drop to a lower resolution so keyframes
 // are small enough to actually transmit. Without this, a 1440p keyframe at
@@ -887,12 +903,6 @@ const SCREEN_SHARE_BITRATE_RECOVERY_STEP = 1.5; // Increased from 1.25 for faste
 // native mode to a persistent 30 fps resized mode.
 const ENABLE_DEVICE_CAPTURE_MODE_RECOVERY = false;
 
-function targetCaptureFps(targetKbps: number, maxFps: number): number {
-  for (const tier of CAPTURE_FPS_TIERS) {
-    if (targetKbps >= tier.minKbps) return Math.min(tier.fps, maxFps);
-  }
-  return Math.min(2, maxFps);
-}
 
 function getScreenShareCaptureMetadata(track: MediaStreamTrack | null) {
   const taggedTrack = track as CatRealmScreenShareTrack | null;
@@ -983,7 +993,29 @@ function summarizeBrowserVideoCodecCapabilities(capabilities: BrowserVideoCodecC
   };
 }
 
+// Wraps the codec preference: a share that would get software H.264 uses VP8
+// instead (see lib/screenShareCodecSupport), and an unavailable H.265 choice
+// tells the user what they actually got instead of falling back silently.
+let screenShareH265FallbackNoticed = false;
 function selectScreenShareVideoCodec(captureTrack: MediaStreamTrack | null): VideoCodec {
+  const preferred = selectPreferredScreenShareVideoCodec(captureTrack);
+  const vp8Available = isVideoCodecAvailable('vp8', getBrowserVideoCodecCapabilities());
+  const codec: VideoCodec = preferred === 'h264' && knownH264HardwareEncode() === false && vp8Available ? 'vp8' : preferred;
+  if (codec !== preferred) {
+    logVoiceDebug('livekit', 'screen share codec switched to VP8 (software H.264)', { preferred, selectedCodec: codec });
+  }
+  const { screenshareCodecPreference } = useSettingsStore.getState();
+  if (screenshareCodecPreference === 'h265' && codec !== 'h265' && !screenShareH265FallbackNoticed) {
+    screenShareH265FallbackNoticed = true;
+    const label = codec === 'vp8' ? 'VP8' : 'H.264';
+    void import('./voiceStore').then(({ useVoiceStore }) => {
+      useVoiceStore.setState({ notice: `H.265 screen sharing isn't available in this browser, so this share uses ${label}.` });
+    });
+  }
+  return codec;
+}
+
+function selectPreferredScreenShareVideoCodec(captureTrack: MediaStreamTrack | null): VideoCodec {
   const { screenshareCodecPreference, screenShareHardwareEncoding } = useSettingsStore.getState();
   const metadata = getScreenShareCaptureMetadata(captureTrack);
   const capabilities = getBrowserVideoCodecCapabilities();
@@ -1127,7 +1159,13 @@ function getScreenShareVideoPublishOptions(
   // Capture-card/device tracks need a single high-fps sender. With H.264
   // simulcast, Chromium can sample the whole media source at the 30 fps lower
   // layer cadence even when the top encoding advertises 60 fps.
-  const simulcast = settings.screenShareSimulcastEnabled && !isDeviceScreenShareCapture(captureTrack);
+  // On Central-fallback realms the share is held to the low 'catrealm' ceiling;
+  // lower simulcast layers would take a third of it from the stream viewers
+  // actually watch, so publish a single layer there.
+  const { activeSession, capabilityByServer } = useMediaStore.getState();
+  const centralFallback = !!activeSession
+    && isCentralMediaFallback(capabilityByServer[activeSession.serverUrl], activeSession.context);
+  const simulcast = settings.screenShareSimulcastEnabled && !centralFallback && !isDeviceScreenShareCapture(captureTrack);
   return {
     ...base,
     screenShareEncoding,
@@ -1163,13 +1201,24 @@ function getScreenShareVideoPublishOptions(
   };
 }
 
+// applyConstraints() replaces the whole constraint set, so changing one
+// property has to carry the others over. Otherwise a frame-rate change drops
+// the size limit (capture snaps back to native resolution, e.g. 1440p into a
+// 720p bitrate) and a resize drops the frame rate (Chromium falls back to its
+// 30 fps screen-capture default while we still believe 60 is applied).
+function applyCaptureConstraintPatch(track: MediaStreamTrack, patch: MediaTrackConstraints) {
+  return track.applyConstraints({ ...track.getConstraints(), ...patch });
+}
+
+// Also holds `fps` as a minimum, so a still screen keeps sending frames.
 async function applyCaptureFrameRate(track: MediaStreamTrack, fps: number) {
-  await track.applyConstraints({
+  await applyScreenCaptureConstraints(track, {
+    ...track.getConstraints(),
     frameRate: {
       ideal: fps,
       max: fps,
     },
-  });
+  }, fps);
 }
 
 function startActiveScreenShareStatsPolling(
@@ -1282,7 +1331,7 @@ function startActiveScreenShareStatsPolling(
       if (captureTrack && captureTrack.readyState === 'live') {
         const canConstrainFps = canDynamicallyConstrainScreenShareCapture(captureMetadata);
         const wantedFps = canConstrainFps
-          ? targetCaptureFps(targetKbps, maxFps)
+          ? targetCaptureFps(targetKbps, maxFps, Math.round(appliedSenderMaxBitrate / 1000))
           : maxFps;
 
         if (wantedFps !== appliedCaptureFps) {
@@ -1317,7 +1366,7 @@ function startActiveScreenShareStatsPolling(
 
         if (needsScaleDown && !scaledDown) {
           scaledDown = true;
-          void captureTrack.applyConstraints({
+          void applyCaptureConstraintPatch(captureTrack, {
             width: { max: CAPTURE_SCALE_DOWN_WIDTH },
             height: { max: CAPTURE_SCALE_DOWN_HEIGHT },
           }).catch(() => {});
@@ -1328,7 +1377,7 @@ function startActiveScreenShareStatsPolling(
           });
         } else if (canRestoreScale && sourceWidth !== null && sourceHeight !== null) {
           scaledDown = false;
-          void captureTrack.applyConstraints({
+          void applyCaptureConstraintPatch(captureTrack, {
             width: { max: sourceWidth },
             height: { max: sourceHeight },
           }).catch(() => {});
@@ -2187,7 +2236,18 @@ function participantSnapshot(participant: Participant): MediaParticipantState {
     name: participant.name || null,
     metadata: parseMetadata(participant.metadata),
     connectionQuality: participant.connectionQuality,
+    unplayableScreenShareMimeType: participant.isLocal
+      ? undefined
+      : getUnplayableScreenShareMimeType(participant as RemoteParticipant),
   };
+}
+
+function getUnplayableScreenShareMimeType(participant: RemoteParticipant) {
+  for (const publication of participant.trackPublications.values()) {
+    if (getEffectivePublicationSource(publication, participant) !== Track.Source.ScreenShare) continue;
+    if (publication.mimeType && !canReceiveVideoMimeType(publication.mimeType)) return publication.mimeType;
+  }
+  return undefined;
 }
 
 function isMissingMediaRoute(error: unknown) {
@@ -2336,6 +2396,103 @@ function nativeCaptureModeForSource(sourceId: string, requestedMode: ScreenShare
   return null;
 }
 
+function startNativeDirectScreenPublish(
+  session: MediaSession,
+  sourceId: string,
+  captureMode: string,
+  presetOverride?: 'quality' | 'efficiency' | 'compressed' | 'catrealm',
+  device?: NativeDirectPublishDevice,
+): Promise<boolean> {
+  if (pendingNativeDirectScreenPublish) {
+    logVoiceDebug('livekit', 'native direct screen publish already starting', { channelId: session.channelId, sourceId }, 'debug');
+    return pendingNativeDirectScreenPublish;
+  }
+  pendingNativeDirectScreenPublish = runNativeDirectScreenPublish(session, sourceId, captureMode, presetOverride, device)
+    .finally(() => { pendingNativeDirectScreenPublish = null; });
+  return pendingNativeDirectScreenPublish;
+}
+
+// A capture card shared through the direct publisher (captureMode 'device-dshow').
+type NativeDirectPublishDevice = {
+  deviceLabel: string;
+  devicePath?: string | null;
+  audioDeviceLabel?: string | null;
+};
+
+async function runNativeDirectScreenPublish(
+  session: MediaSession,
+  sourceId: string,
+  captureMode: string,
+  presetOverride?: 'quality' | 'efficiency' | 'compressed' | 'catrealm',
+  device?: NativeDirectPublishDevice,
+): Promise<boolean> {
+  if (!isTauriDesktop() || !window.electron?.startNativeScreenPublish || !session.channelId) return false;
+  const support = await window.electron.getNativeScreenPublishSupport?.().catch(() => null);
+  if (!support?.ok) {
+    logVoiceDebug('livekit', 'native direct screen publish unavailable', { reason: support?.reason ?? 'no-support', message: support?.message ?? null }, 'warn');
+    return false;
+  }
+  let screenToken: { ok?: boolean; token?: string; url?: string } | null = null;
+  try {
+    const response = await createApi(session.serverUrl).post<{ ok?: boolean; token?: string; url?: string }>(
+      '/api/media/screen-token',
+      { context: session.context, channelId: session.channelId },
+      { timeout: 8000 },
+    );
+    screenToken = response.data;
+  } catch (err) {
+    logVoiceDebug('livekit', 'native direct screen publish token failed', { message: (err as Error)?.message ?? String(err) }, 'warn');
+    return false;
+  }
+  if (!screenToken?.ok || !screenToken.token || !screenToken.url) return false;
+
+  const settings = useSettingsStore.getState();
+  const height = settings.screenshareResolution;
+  const fps = settings.screenshareFps;
+  const preset = resolveScreenSharePreset(session, presetOverride);
+  const encoding = getScreenShareEncoding(height, fps, preset);
+  const started = await window.electron.startNativeScreenPublish({
+    url: screenToken.url,
+    token: screenToken.token,
+    sourceId,
+    captureMode,
+    width: Math.round((height * 16) / 9 / 2) * 2,
+    height,
+    fps,
+    bitrate: encoding.maxBitrate,
+    preset,
+    h264Profile: settings.screenShareNativeProfile,
+    videoEncoder: settings.screenShareVideoEncoder ?? undefined,
+    includeAudio: !device && settings.screenshareAudio,
+    deviceLabel: device?.deviceLabel,
+    devicePath: device?.devicePath ?? undefined,
+    audioDeviceLabel: device?.audioDeviceLabel ?? undefined,
+  });
+  if (!started?.ok) {
+    logVoiceDebug('livekit', 'native direct screen publish failed', { reason: started?.reason ?? null, message: started?.message ?? null }, 'warn');
+    return false;
+  }
+  activeNativeScreenPublish = true;
+  nativeScreenPublishStoppedListener ??= window.electron.onNativeScreenPublishStopped?.((payload) => {
+    if (!activeNativeScreenPublish) return;
+    activeNativeScreenPublish = false;
+    logVoiceDebug('livekit', 'native direct screen publish stopped', payload, 'warn');
+    useMediaStore.setState({ isScreenShareEnabled: false, localScreenShareStream: null });
+  }) ?? null;
+  logVoiceDebug('livekit', 'native direct screen publish started', {
+    channelId: session.channelId,
+    sourceId,
+    captureMode,
+    trackSid: started.trackSid ?? null,
+    target: `${started.height ?? height}p${started.fps ?? fps}`,
+    bitrate: encoding.maxBitrate,
+    preset,
+    audio: started.audio ?? false,
+    deviceLabel: device?.deviceLabel ?? null,
+  });
+  return true;
+}
+
 async function requestWhipIngressSession(
   session: MediaSession,
   video?: { height: number; fps: number; bitrate?: number; simulcast?: boolean },
@@ -2452,6 +2609,20 @@ let activeScreenShareVideoPublication: LocalTrackPublication | null = null;
 let activeScreenShareAudioPublications: LocalTrackPublication[] = [];
 let activeNativeWhipPublisherId: string | null = null;
 let activeNativeWhipIngress: WhipIngressReleaseHandle | null = null;
+// Sushi on Windows publishing GPU-encoded screen share straight into the room.
+let activeNativeScreenPublish = false;
+let nativeScreenPublishStoppedListener: (() => void) | null = null;
+// One direct publish start at a time: a second start (e.g. a repeated Go Live
+// while the first is still connecting) joins the pending one instead of
+// opening another LiveKit connection under the same screen identity.
+let pendingNativeDirectScreenPublish: Promise<boolean> | null = null;
+
+function stopNativeScreenPublishIfActive() {
+  if (!activeNativeScreenPublish) return false;
+  activeNativeScreenPublish = false;
+  void window.electron?.stopNativeScreenPublish?.().catch(() => undefined);
+  return true;
+}
 let activeCameraTracks: MediaStreamTrack[] = [];
 
 function takeActiveNativeWhipIngress() {
@@ -2461,6 +2632,7 @@ function takeActiveNativeWhipIngress() {
 }
 
 function clearActiveScreenShareTracks() {
+  stopNativeScreenPublishIfActive();
   if (activeNativeWhipPublisherId) {
     const publisherId = activeNativeWhipPublisherId;
     activeNativeWhipPublisherId = null;
@@ -2983,6 +3155,9 @@ export const useMediaStore = create<MediaState>((set, get) => ({
             trackName: publication.trackName || null,
             subscribed: publication.isSubscribed,
           });
+          set((state) => ({
+            participants: { ...state.participants, [participant.identity]: participantSnapshot(participant) },
+          }));
         })
         .on(RoomEvent.TrackUnpublished, (publication, participant) => {
           const source = getEffectivePublicationSource(publication, participant);
@@ -2997,6 +3172,7 @@ export const useMediaStore = create<MediaState>((set, get) => ({
           });
           set((state) => ({
             remoteTracks: removeRemoteTrack(state.remoteTracks, participant.identity, publication.trackSid),
+            participants: { ...state.participants, [participant.identity]: participantSnapshot(participant) },
           }));
         })
         .on(RoomEvent.TrackSubscriptionFailed, (trackSid, participant, reason) => {
@@ -3791,7 +3967,14 @@ export const useMediaStore = create<MediaState>((set, get) => ({
         reason: 'server-whip-unavailable',
         capabilityIngress: capability?.ingress ?? null,
       }, 'warn');
-      return false;
+      // No ingress (e.g. Central LiveKit fallback): Sushi on Windows can still
+      // publish its GPU-encoded share straight into the room.
+      const direct = await startNativeDirectScreenPublish(session, sourceId, nativeCaptureMode, presetOverride);
+      if (direct) {
+        set({ isScreenShareEnabled: true, localScreenShareStream: null });
+        publishScreenShareWatchersSnapshot(session, get().screenShareViewersByUser);
+      }
+      return direct;
     }
 
     const support = await window.electron.getNativeWhipPublisherSupport({ forceRefresh: false });
@@ -4014,7 +4197,18 @@ export const useMediaStore = create<MediaState>((set, get) => ({
         reason: 'server-whip-unavailable',
         capabilityIngress: capability?.ingress ?? null,
       }, 'warn');
-      return false;
+      // Same as screens: without ingress, Sushi on Windows publishes the
+      // capture card (and its audio input) straight into the room.
+      const direct = await startNativeDirectScreenPublish(session, deviceId, 'device-dshow', presetOverride, {
+        deviceLabel: label,
+        devicePath: devicePath ?? null,
+        audioDeviceLabel: audioDeviceLabel ?? null,
+      });
+      if (direct) {
+        set({ isScreenShareEnabled: true, localScreenShareStream: null });
+        publishScreenShareWatchersSnapshot(session, get().screenShareViewersByUser);
+      }
+      return direct;
     }
 
     const support = await window.electron.getNativeWhipPublisherSupport({ forceRefresh: false });
@@ -4192,11 +4386,12 @@ export const useMediaStore = create<MediaState>((set, get) => ({
       if (!videoTrack) throw new Error('Screen share stream has no video track.');
       const tracks: MediaStreamTrack[] = [...stream.getVideoTracks(), ...stream.getAudioTracks()];
       const audioStatus = getScreenShareAudioStatus(stream);
+      await probeH264HardwareEncode();
       const screenShareTarget = getScreenSharePublishTarget(
         videoTrack,
         settings.screenshareResolution,
         settings.screenshareFps,
-        presetOverride ?? settings.screenshareQualityPreset,
+        resolveScreenSharePreset(session, presetOverride),
       );
       const screenShareEncoding = screenShareTarget.encoding;
       const contentHint = applyScreenShareTrackHint(videoTrack, settings.screenshareFps);
@@ -4307,11 +4502,12 @@ export const useMediaStore = create<MediaState>((set, get) => ({
       return;
     }
     const settings = useSettingsStore.getState();
+    await probeH264HardwareEncode();
     const screenShareTarget = getScreenSharePublishTarget(
       null,
       settings.screenshareResolution,
       settings.screenshareFps,
-      presetOverride ?? settings.screenshareQualityPreset,
+      resolveScreenSharePreset(session, presetOverride),
     );
     const screenShareEncoding = screenShareTarget.encoding;
     const screenShareVideoPublishOptions = getScreenShareVideoPublishOptions(null, screenShareEncoding, {
@@ -4369,6 +4565,11 @@ export const useMediaStore = create<MediaState>((set, get) => ({
       set({ isScreenShareEnabled: false, localScreenShareStream: null, nativeScreenPreviewUrl: null, screenShareViewersByUser: {} });
       return;
     }
+    const nativeDirectPublish = activeNativeScreenPublish;
+    if (nativeDirectPublish) {
+      activeNativeScreenPublish = false;
+      await window.electron?.stopNativeScreenPublish?.().catch(() => undefined);
+    }
     const nativePublisherId = activeNativeWhipPublisherId;
     const nativeIngress = takeActiveNativeWhipIngress();
     if (nativePublisherId) {
@@ -4397,7 +4598,7 @@ export const useMediaStore = create<MediaState>((set, get) => ({
           // ignore already-ended tracks
         }
       });
-    } else if (!nativePublisherId) {
+    } else if (!nativePublisherId && !nativeDirectPublish) {
       await session.room.localParticipant.setScreenShareEnabled(false);
     }
     activeScreenShareVideoPublication = null;

@@ -67,7 +67,7 @@ import { ComposerCommandSuggestionList } from './ComposerCommandSuggestionList';
 import { ComposerOptionSuggestionList, type OptionSuggestion } from './ComposerOptionSuggestionList';
 import { useBotStore } from '../../stores/botStore';
 import type { BotCommand } from '../../types';
-import { SharedExpressionPickerPanel } from './SharedExpressionPickerPanel';
+import { SharedExpressionPickerPanel, isInsideExpressionPicker } from './SharedExpressionPickerPanel';
 import { ScheduleMessageModal } from './ScheduleMessageModal';
 import { ARCHIVE_ACCEPT, isArchiveFile } from '../../lib/archiveFiles';
 import {
@@ -1404,7 +1404,7 @@ export function MessageInput({ threadId = null, allowText = true, forceMediaButt
     if (!pickerOpen) return;
     const onPointerDown = (event: MouseEvent) => {
       if (!pickerRef.current) return;
-      if (pickerRef.current.contains(event.target as Node)) return;
+      if (pickerRef.current.contains(event.target as Node) || isInsideExpressionPicker(event.target)) return;
       setPickerOpen(false);
     };
     window.addEventListener('mousedown', onPointerDown);
@@ -1481,6 +1481,7 @@ export function MessageInput({ threadId = null, allowText = true, forceMediaButt
     'image/webp',
     'image/gif',
     'video/mp4',
+    'video/webm',
   ]), []);
 
   const handleFiles = useCallback(
@@ -1749,7 +1750,7 @@ export function MessageInput({ threadId = null, allowText = true, forceMediaButt
             <ComposerFileButton
               inputRef={fileInputRef}
               action={uploadButtonAction ?? {}}
-              accept={`image/png,image/jpeg,image/webp,image/gif,video/mp4,${ARCHIVE_ACCEPT}`}
+              accept={`image/png,image/jpeg,image/webp,image/gif,video/mp4,video/webm,${ARCHIVE_ACCEPT}`}
               multiple
               onChange={handleUploadInputChange}
               className={`px-3 py-2.5 text-text-muted transition-colors ${

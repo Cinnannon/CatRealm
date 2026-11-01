@@ -246,6 +246,29 @@ declare global {
       listVideoCaptureDevices?: () => Promise<NativeVideoCaptureDevice[]>;
       startNativeWhipPublisher?: (opts: NativeWhipPublisherStartOptions) => Promise<NativeWhipPublisherStartResult>;
       stopNativeWhipPublisher?: (publisherId?: string) => Promise<{ ok: true }>;
+      // Sushi on Windows: GPU-encoded screen share published straight into the
+      // LiveKit room with a realm screen token (no WHIP ingress needed).
+      getNativeScreenPublishSupport?: () => Promise<{ ok: boolean; reason?: string; message?: string }>;
+      startNativeScreenPublish?: (opts: {
+        url: string;
+        token: string;
+        sourceId: string;
+        captureMode: string;
+        width: number;
+        height: number;
+        fps: number;
+        bitrate?: number;
+        preset?: string;
+        h264Profile?: string;
+        videoEncoder?: string;
+        // Screens/windows: publish desktop or app loopback audio.
+        includeAudio?: boolean;
+        // Capture cards (captureMode 'device-dshow'): the device and its audio input.
+        deviceLabel?: string;
+        devicePath?: string;
+        audioDeviceLabel?: string;
+      }) => Promise<{ ok: boolean; reason?: string; message?: string; trackSid?: string; width?: number; height?: number; fps?: number; audio?: boolean }>;
+      stopNativeScreenPublish?: () => Promise<{ ok: boolean; stopped?: boolean }>;
       // Native voice fallback (Linux Sushi; WebKitGTK has no WebRTC).
       getNativeVoiceSupport?: () => Promise<NativeVoiceSupport>;
       nativeVoiceListDevices?: () => Promise<{
@@ -276,6 +299,7 @@ declare global {
       onAppAudioCaptureStopped: (callback: (payload: { captureId: string; code: number | null; signal: string | null; error?: string }) => void) => () => void;
       onNativeWhipPublisherStatus?: (callback: (payload: NativeWhipPublisherStatus) => void) => () => void;
       onNativeWhipPublisherStopped?: (callback: (payload: NativeWhipPublisherStopped) => void) => () => void;
+      onNativeScreenPublishStopped?: (callback: (payload: { reason?: string; detail?: string }) => void) => () => void;
       getAppVersion: () => Promise<{ version: string }>;
       openScreenshareWizard?: () => Promise<{ ok: boolean }>;
       // Relaunch the desktop app (used by the GPU Encoding restart-&-reconnect flow).

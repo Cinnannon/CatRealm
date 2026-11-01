@@ -1,5 +1,5 @@
 use serde_json::{json, Value};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 #[cfg(any(target_os = "windows", test))]
 use base64::{engine::general_purpose, Engine as _};
@@ -49,6 +49,22 @@ pub async fn native_whip_publisher_support(opts: Value) -> Value {
 #[tauri::command]
 pub fn native_whip_publisher_start(app: AppHandle, opts: Value) -> Value {
     crate::capture::whip_publisher_start(&app, opts)
+}
+
+#[tauri::command]
+pub fn native_screen_publish_support() -> Value {
+    crate::screen_publish::support()
+}
+
+#[tauri::command]
+pub async fn native_screen_publish_start(app: AppHandle, opts: Value) -> Value {
+    let state = app.state::<crate::AppState>();
+    state.screen_publish.start(app.clone(), opts).await
+}
+
+#[tauri::command]
+pub async fn native_screen_publish_stop(app: AppHandle) -> Value {
+    app.state::<crate::AppState>().screen_publish.stop().await
 }
 
 #[tauri::command]

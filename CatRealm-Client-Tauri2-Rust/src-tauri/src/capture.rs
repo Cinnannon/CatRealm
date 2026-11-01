@@ -1210,13 +1210,69 @@ fn kill_stale_catrealm_gstreamer_publishers() {
 #[cfg(not(target_os = "windows"))]
 fn kill_stale_catrealm_gstreamer_publishers() {}
 
+/// Starts the screen capture + GPU H.264 encode pipeline with Annex-B output
+/// on stdout, for the native screen publisher. `opts` takes the same capture
+/// options as the WHIP publisher (captureMode, sourceId, width, height, fps,
+/// bitrate, encoder); the WHIP and audio settings are ignored.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub(crate) fn spawn_encoded_screen_capture(opts: &Value) -> Result<Child, String> {
+    let gst_path = resolve_gstreamer_launcher()
+        .ok_or_else(|| "CatRealmStreamer.exe or gst-launch-1.0.exe was not found.".to_string())?;
+    let mut opts = opts.clone();
+    opts["sink"] = json!("fd");
+    let args = build_gstreamer_publisher_args(&gst_path, &opts)?;
+    let mut command = Command::new(&gst_path);
+    command
+        // -q: gst-launch prints its status lines ("Setting pipeline to
+        // PLAYING", "Redistribute latency") to stdout, which here carries the
+        // media itself.
+        .arg("-q")
+        .args(&args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    for (key, value) in gstreamer_env(&gst_path) {
+        command.env(key, value);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    command.spawn().map_err(|error| format!("Failed to start GStreamer capture: {error}"))
+}
+
+#[cfg(not(target_os = "windows"))]
+pub(crate) fn encoded_screen_capture_support() -> Value {
+    json!({ "ok": false, "reason": "unsupported", "message": "Native screen publishing is Windows-only." })
+}
+
+/// Whether this machine can capture and GPU-encode screen share natively.
+#[cfg(target_os = "windows")]
+pub(crate) fn encoded_screen_capture_support() -> Value {
+    let Some(gst_path) = resolve_gstreamer_launcher() else {
+        return json!({ "ok": false, "reason": "missing-gstreamer", "message": "GStreamer was not found." });
+    };
+    let capture = gst_element_available(&gst_path, "d3d11screencapturesrc");
+    let encoder = ["nvh264enc", "amfh264enc", "mfh264enc"].iter().any(|name| gst_element_available(&gst_path, name));
+    json!({
+        "ok": capture && encoder,
+        "reason": if capture && encoder { "ok" } else { "missing-elements" },
+        "capture": capture,
+        "encoder": encoder,
+    })
+}
+
 fn build_gstreamer_publisher_args(gst_path: &Path, opts: &Value) -> Result<Vec<String>, String> {
     let capture_mode = opts
         .get("captureMode")
         .and_then(Value::as_str)
         .unwrap_or("monitor-dxgi");
     let source_id = opts.get("sourceId").and_then(Value::as_str).unwrap_or("");
-    let endpoint = join_whip_endpoint(
+    // "fd" ends the pipeline in Annex-B H.264 on stdout for the native screen
+    // publisher (screen_publish.rs) instead of a WHIP sink; video only.
+    let fd_sink = opts.get("sink").and_then(Value::as_str) == Some("fd");
+    let endpoint = if fd_sink { Some(String::new()) } else { join_whip_endpoint(
         opts.get("whip")
             .and_then(|whip| whip.get("url"))
             .and_then(Value::as_str)
@@ -1225,7 +1281,7 @@ fn build_gstreamer_publisher_args(gst_path: &Path, opts: &Value) -> Result<Vec<S
             .and_then(|whip| whip.get("streamKey"))
             .and_then(Value::as_str)
             .unwrap_or(""),
-    )
+    ) }
     .ok_or_else(|| "Missing WHIP endpoint.".to_string())?;
 
     let fps = number_option(opts.get("fps").and_then(Value::as_i64), 60, 1, 240);
@@ -1242,7 +1298,7 @@ fn build_gstreamer_publisher_args(gst_path: &Path, opts: &Value) -> Result<Vec<S
         500_000,
         50_000_000,
     );
-    let include_audio = opts
+    let include_audio = !fd_sink && opts
         .get("includeAudio")
         .and_then(Value::as_bool)
         .unwrap_or(false)
@@ -1317,13 +1373,22 @@ fn build_gstreamer_publisher_args(gst_path: &Path, opts: &Value) -> Result<Vec<S
 
     let h264_profile = h264_profile(opts);
     let encoder = resolve_gst_video_encoder(gst_path, opts);
-    let encoder_tokens = build_h264_encoder_tokens(
+    let mut encoder_tokens = build_h264_encoder_tokens(
         encoder,
         (bitrate / 1000).max(500),
         (fps * 2).max(15),
         h264_profile == "high" || h264_profile == "main",
         rate_control(opts),
     );
+    if fd_sink && encoder == "nvh264enc" {
+        // NVENC's default VBV lets one frame balloon on a sudden full-screen
+        // change (flashbangs, big effects); pre-encoded frames go out as-is,
+        // so that burst overruns the path and viewers stall. Cap the buffer
+        // at ~4 frames: tight enough to stop the stalls, loose enough that
+        // periodic IDRs aren't starved (a 2-frame cap made text visibly
+        // pulse soft/sharp at every keyframe).
+        encoder_tokens.push(format!("vbv-buffer-size={}", ((bitrate / 1000) * 4 / fps).max(100)));
+    }
 
     args.extend([
         "!".to_string(),
@@ -1351,6 +1416,22 @@ fn build_gstreamer_publisher_args(gst_path: &Path, opts: &Value) -> Result<Vec<S
         "!".to_string(),
     ]);
     args.extend(encoder_tokens);
+    if fd_sink {
+        args.extend([
+            "!".to_string(),
+            format!("video/x-h264,profile=(string){h264_profile},stream-format=(string)byte-stream,alignment=(string)au"),
+            "!".to_string(),
+            "h264parse".to_string(),
+            "config-interval=-1".to_string(),
+            "!".to_string(),
+            "video/x-h264,stream-format=(string)byte-stream,alignment=(string)au".to_string(),
+            "!".to_string(),
+            "fdsink".to_string(),
+            "fd=1".to_string(),
+            "sync=false".to_string(),
+        ]);
+        return Ok(args);
+    }
     args.extend([
         "!".to_string(),
         format!("video/x-h264,profile=(string){h264_profile},stream-format=(string)byte-stream,alignment=(string)au"),
@@ -1385,40 +1466,9 @@ fn build_gstreamer_audio_branch(
     process_id: Option<u32>,
     audio_device_label: Option<&str>,
 ) -> Vec<String> {
-    if capture_mode == "window-wgc" && process_id.is_none() {
+    let Some(mut branch) = gstreamer_audio_source_tokens(gst_path, capture_mode, process_id, audio_device_label) else {
         return Vec::new();
-    }
-
-    let mut branch = vec![
-        "wasapi2src".to_string(),
-        "low-latency=true".to_string(),
-        "provide-clock=false".to_string(),
-        "do-timestamp=true".to_string(),
-        "slave-method=resample".to_string(),
-        "latency-time=10000".to_string(),
-        "buffer-time=200000".to_string(),
-    ];
-
-    if capture_mode == "device-dshow" {
-        let Some(audio_device_label) = audio_device_label else {
-            return Vec::new();
-        };
-        let Some(audio_device) = find_gst_audio_device(gst_path, audio_device_label) else {
-            return Vec::new();
-        };
-        branch.insert(1, format!("device={}", gst_quoted(&audio_device.id)));
-        if audio_device.loopback {
-            branch.insert(2, "loopback=true".to_string());
-        }
-    } else {
-        branch.insert(1, "loopback=true".to_string());
-        if capture_mode == "window-wgc" {
-            if let Some(process_id) = process_id {
-                branch.push("loopback-mode=include-process-tree".to_string());
-                branch.push(format!("loopback-target-pid={process_id}"));
-            }
-        }
-    }
+    };
     branch.extend([
         "!".to_string(),
         "queue".to_string(),
@@ -1447,6 +1497,108 @@ fn build_gstreamer_audio_branch(
         "whip.".to_string(),
     ]);
     branch
+}
+
+/// The `wasapi2src` capturing a share's audio: the device's own audio input
+/// for capture cards, the target process tree for windows, otherwise desktop
+/// loopback. None when the source has no audio to capture.
+fn gstreamer_audio_source_tokens(
+    gst_path: &Path,
+    capture_mode: &str,
+    process_id: Option<u32>,
+    audio_device_label: Option<&str>,
+) -> Option<Vec<String>> {
+    if capture_mode == "window-wgc" && process_id.is_none() {
+        return None;
+    }
+
+    let mut branch = vec![
+        "wasapi2src".to_string(),
+        "low-latency=true".to_string(),
+        "provide-clock=false".to_string(),
+        "do-timestamp=true".to_string(),
+        "slave-method=resample".to_string(),
+        "latency-time=10000".to_string(),
+        "buffer-time=200000".to_string(),
+    ];
+
+    if capture_mode == "device-dshow" {
+        let audio_device = find_gst_audio_device(gst_path, audio_device_label?)?;
+        branch.insert(1, format!("device={}", gst_quoted(&audio_device.id)));
+        if audio_device.loopback {
+            branch.insert(2, "loopback=true".to_string());
+        }
+    } else {
+        branch.insert(1, "loopback=true".to_string());
+        if capture_mode == "window-wgc" {
+            if let Some(process_id) = process_id {
+                branch.push("loopback-mode=include-process-tree".to_string());
+                branch.push(format!("loopback-target-pid={process_id}"));
+            }
+        }
+    }
+    Some(branch)
+}
+
+/// Starts an audio-only capture of a share's audio (same source choice as the
+/// WHIP publisher) with raw 48 kHz stereo S16LE PCM on stdout, for the native
+/// screen publisher. Ok(None) when the share has no audio to capture.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub(crate) fn spawn_raw_audio_capture(opts: &Value) -> Result<Option<Child>, String> {
+    let gst_path = resolve_gstreamer_launcher()
+        .ok_or_else(|| "CatRealmStreamer.exe or gst-launch-1.0.exe was not found.".to_string())?;
+    let capture_mode = opts.get("captureMode").and_then(Value::as_str).unwrap_or("monitor-dxgi");
+    let process_id = (capture_mode == "window-wgc")
+        .then(|| parse_desktop_source_window_id(opts.get("sourceId").and_then(Value::as_str).unwrap_or("")))
+        .flatten()
+        .and_then(window_process_id);
+    let audio_device_label = opts
+        .get("audioDeviceLabel")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let Some(mut args) = gstreamer_audio_source_tokens(&gst_path, capture_mode, process_id, audio_device_label) else {
+        return Ok(None);
+    };
+    args.extend([
+        "!".to_string(),
+        "queue".to_string(),
+        "leaky=downstream".to_string(),
+        "max-size-buffers=0".to_string(),
+        "max-size-bytes=0".to_string(),
+        "max-size-time=200000000".to_string(),
+        "!".to_string(),
+        "audioconvert".to_string(),
+        "!".to_string(),
+        "audioresample".to_string(),
+        "!".to_string(),
+        "audio/x-raw,format=S16LE,rate=48000,channels=2,layout=interleaved".to_string(),
+        "!".to_string(),
+        "fdsink".to_string(),
+        "fd=1".to_string(),
+        "sync=false".to_string(),
+    ]);
+    let mut command = Command::new(&gst_path);
+    command
+        // -q: keep gst-launch's status text out of the PCM on stdout; even a
+        // few bytes misalign every sample after them into full-scale noise.
+        .arg("-q")
+        .args(&args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    for (key, value) in gstreamer_env(&gst_path) {
+        command.env(key, value);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    command
+        .spawn()
+        .map(Some)
+        .map_err(|error| format!("Failed to start GStreamer audio capture: {error}"))
 }
 
 #[cfg(target_os = "windows")]

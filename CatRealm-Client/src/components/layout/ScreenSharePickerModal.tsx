@@ -126,7 +126,11 @@ export function ScreenSharePickerModal() {
   const forcedMonitorSource = shouldUseMonitorForSelectedWindow
     ? screenSources[0] ?? null
     : null;
-  const usingNativeDevicePicker = !cameraMode && runningOnDesktop && effectiveActiveTab === 'devices';
+  // Only Sushi can list native (GStreamer) capture devices. Sparky has no such
+  // listing, so filtering to native devices there left the tab empty; it shares
+  // its Chromium devices instead.
+  const canListNativeDevices = !!window.electron?.listVideoCaptureDevices;
+  const usingNativeDevicePicker = !cameraMode && runningOnDesktop && canListNativeDevices && effectiveActiveTab === 'devices';
   const visibleDevices = usingNativeDevicePicker
     ? devices.filter(isNativeVideoDevice)
     : devices;

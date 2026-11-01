@@ -67,6 +67,7 @@ import { AudioTracksMixerModal } from '../voice/AudioTracksMixerModal';
 import { PrivacySummaryModal } from './PrivacySummaryModal';
 import { ChangelogModal } from './ChangelogModal';
 import { VoiceNoMicrophoneDialog } from './VoiceNoMicrophoneDialog';
+import { InsecureRealmMediaDialog } from './InsecureRealmMediaDialog';
 import { VoicePermissionDeniedDialog } from './VoicePermissionDeniedDialog';
 import { ScreenShareVp8FallbackDialog } from './ScreenShareVp8FallbackDialog';
 import { TemplateImportOverlay } from './TemplateImportOverlay';
@@ -458,6 +459,7 @@ export function AppLayout() {
       <PrivacySummaryModal />
       <ChangelogModal />
       <VoiceNoMicrophoneDialog />
+      <InsecureRealmMediaDialog />
       <VoicePermissionDeniedDialog />
       <ScreenShareVp8FallbackDialog />
       <ExternalLinkModal />

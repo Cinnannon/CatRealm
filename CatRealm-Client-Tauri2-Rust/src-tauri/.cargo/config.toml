@@ -1,0 +1,6 @@
+# LiveKit's prebuilt libwebrtc (webrtc-sys, used for Windows native screen
+# publish) is built against the static MSVC runtime (/MT). Linking it into a
+# dynamic-CRT (/MD) binary fails with LNK2038 RuntimeLibrary mismatches, so the
+# Windows build links the CRT statically, as the LiveKit Rust SDK requires.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

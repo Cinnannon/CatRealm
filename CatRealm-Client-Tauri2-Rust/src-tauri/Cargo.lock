@@ -457,7 +457,7 @@ dependencies = [
 
 [[package]]
 name = "catrealm-tauri"
-version = "1.9.2"
+version = "1.9.3"
 dependencies = [
  "base64 0.22.1",
  "futures-util",
@@ -2413,8 +2413,6 @@ checksum = "92daf443525c4cce67b150400bc2316076100ce0b3686209eb8cf3c31612e6f0"
 [[package]]
 name = "livekit"
 version = "0.7.53"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa8ed793e154d63b588397ea7a84cfb3606b6d049f4d24137d9d9e0384617059"
 dependencies = [
  "base64 0.22.1",
  "bmrng",

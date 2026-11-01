@@ -45,6 +45,7 @@ import {
   buildTwitchDesktopFallbackCard,
 } from './EmbedRenderers';
 import { MentionText } from './mentions';
+import { isKlipyMediaUrl } from './KlipyFavoriteButton';
 import { isAllowedExternalUrl, openProtectedExternalUrl } from '../../utils/externalLinks';
 
 /**
@@ -493,10 +494,11 @@ export function MessageFormatter({
   }, [openModal]);
 
   const handleImmediateMediaOpen = useCallback((url: string) => {
+    const klipyMedia = isKlipyMediaUrl(url);
     openModal('mediaViewer', {
       url,
-      type: 'image/gif',
-      name: 'Klipy GIF',
+      type: klipyMedia ? 'image/gif' : 'image/*',
+      name: klipyMedia ? 'Klipy GIF' : null,
       author: senderAuthor,
       avatarUrl: senderAvatarUrl,
       createdAt: senderCreatedAt,

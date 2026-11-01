@@ -193,9 +193,9 @@ export function buildImmediateEmbed(
         href={url}
         target="_blank"
         rel="noreferrer"
-        className={klipyMedia ? 'block max-w-full cursor-zoom-in' : 'inline-block mt-2 align-top max-w-lg'}
+        className={klipyMedia ? 'block max-w-full cursor-zoom-in' : 'inline-block mt-2 align-top max-w-lg cursor-zoom-in'}
         onClick={(e) => {
-          if (klipyMedia && onOpenMedia) {
+          if (onOpenMedia) {
             e.preventDefault();
             e.stopPropagation();
             onOpenMedia(url);

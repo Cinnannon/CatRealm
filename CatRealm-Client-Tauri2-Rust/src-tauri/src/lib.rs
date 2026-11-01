@@ -2,6 +2,7 @@ mod app_security;
 mod capture;
 mod commands;
 mod native_voice;
+mod screen_publish;
 mod obs_overlay;
 mod settings;
 mod webview_lifecycle;
@@ -84,6 +85,7 @@ pub(crate) struct AppState {
     pub(crate) native_whip: capture::NativeWhipPublisherService,
     pub(crate) overlay: obs_overlay::OverlayServer,
     pub(crate) native_voice: native_voice::NativeVoiceService,
+    pub(crate) screen_publish: screen_publish::ScreenPublishService,
     pub(crate) updater: commands::updates::UpdaterService,
     pub(crate) reactive_avatar_gate: Mutex<()>,
     pub(crate) background_media_active: AtomicBool,
@@ -222,6 +224,7 @@ pub fn run() {
                 native_whip: capture::NativeWhipPublisherService::default(),
                 overlay: obs_overlay::OverlayServer::default(),
                 native_voice: native_voice::NativeVoiceService::default(),
+                screen_publish: screen_publish::ScreenPublishService::default(),
                 updater: commands::updates::UpdaterService::new(),
                 reactive_avatar_gate: Mutex::new(()),
                 background_media_active: AtomicBool::new(false),
@@ -279,6 +282,7 @@ pub fn run() {
                     }
                     "quit" => {
                         capture::stop_all_native_whip_publishers(app);
+                        tauri::async_runtime::block_on(app.state::<AppState>().screen_publish.stop());
                         app.exit(0);
                     }
                     _ => {}
@@ -304,6 +308,7 @@ pub fn run() {
                         // messages and native alerts while the window is in the tray.
                     } else {
                         capture::stop_all_native_whip_publishers(window.app_handle());
+                        tauri::async_runtime::block_on(window.app_handle().state::<AppState>().screen_publish.stop());
                     }
                 }
             }
@@ -356,6 +361,9 @@ pub fn run() {
             commands::capture::native_whip_publisher_support,
             commands::capture::native_whip_publisher_start,
             commands::capture::native_whip_publisher_stop,
+            commands::capture::native_screen_publish_support,
+            commands::capture::native_screen_publish_start,
+            commands::capture::native_screen_publish_stop,
             commands::capture::app_audio_capture_start,
             commands::capture::app_audio_capture_stop,
             commands::capture::fix_screenshare_firewall_rule,

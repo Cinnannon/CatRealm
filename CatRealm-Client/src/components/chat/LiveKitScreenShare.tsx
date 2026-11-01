@@ -51,6 +51,7 @@ type LiveKitRemotePublicationControls = {
 type LiveKitParticipant = {
   name: string | null;
   metadata?: Record<string, unknown> | null;
+  unplayableScreenShareMimeType?: string;
 };
 
 type VoiceUserLike = {
@@ -78,6 +79,37 @@ function getScreenShareOwnerId(participantId: string, participant?: LiveKitParti
   if (typeof ownerIdentity === 'string' && ownerIdentity.trim()) return ownerIdentity;
   const ingressMatch = participantId.match(/^catrealm-ingress:([^:]+):screen:/);
   return ingressMatch?.[1] || participantId;
+}
+
+export type UnplayableScreenShare = {
+  id: string;
+  username: string;
+  mimeType: string;
+};
+
+// Shares this browser can't decode never get a track (LiveKit refuses the
+// subscription), so they are listed from the publications instead.
+export function buildUnplayableScreenShares({
+  active,
+  participants,
+  voiceUsers,
+  playableIds,
+  selfUserId,
+}: {
+  active: boolean;
+  participants: Record<string, LiveKitParticipant>;
+  voiceUsers: Record<string, VoiceUserLike>;
+  playableIds: Set<string>;
+  selfUserId?: string | null;
+}): UnplayableScreenShare[] {
+  if (!active) return [];
+  return Object.entries(participants).flatMap(([participantId, participant]) => {
+    if (!participant.unplayableScreenShareMimeType) return [];
+    const id = getScreenShareOwnerId(participantId, participant);
+    if (id === selfUserId || playableIds.has(id)) return [];
+    const username = voiceUsers[id]?.username || participant.name || id.slice(0, 6);
+    return [{ id, username, mimeType: participant.unplayableScreenShareMimeType }];
+  });
 }
 
 type ReceivedVideoStats = {

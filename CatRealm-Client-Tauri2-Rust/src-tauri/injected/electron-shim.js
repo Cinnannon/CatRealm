@@ -67,6 +67,11 @@
     listVideoCaptureDevices: () => invoke('list_video_capture_devices'),
     startNativeWhipPublisher: (opts) => invoke('native_whip_publisher_start', { opts: opts ?? null }),
     stopNativeWhipPublisher: (publisherId) => invoke('native_whip_publisher_stop', { publisherId: publisherId ?? null }),
+    // Sushi-only: publish GPU-encoded screen share straight into the LiveKit
+    // room when the realm has no WHIP ingress (e.g. Central fallback).
+    getNativeScreenPublishSupport: () => invoke('native_screen_publish_support'),
+    startNativeScreenPublish: (opts) => invoke('native_screen_publish_start', { opts: opts ?? null }),
+    stopNativeScreenPublish: () => invoke('native_screen_publish_stop'),
     // Native voice fallback for webviews without WebRTC (Linux WebKitGTK):
     // the renderer fetches the LiveKit token, then the Rust process runs the
     // room via the LiveKit Rust SDK and mirrors state over native-voice-event.
@@ -100,6 +105,7 @@
     onAppAudioCaptureStopped: makeListener('app-audio-capture-stopped'),
     onNativeWhipPublisherStatus: makeListener('native-whip-publisher-status'),
     onNativeWhipPublisherStopped: makeListener('native-whip-publisher-stopped'),
+    onNativeScreenPublishStopped: makeListener('native-screen-publish-stopped'),
     getAppVersion: () => invoke('get_app_version'),
     openScreenshareWizard: () => invoke('open_screenshare_wizard'),
     relaunchApp: () => invoke('app_relaunch'),

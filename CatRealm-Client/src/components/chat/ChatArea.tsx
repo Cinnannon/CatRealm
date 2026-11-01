@@ -14,7 +14,7 @@ import { PERMISSIONS, hasPermission, hasChannelPermission } from '../../utils/pe
 import { useThreadStore } from '../../stores/threadStore';
 import { useVoiceStore } from '../../stores/voiceStore';
 import { useVoiceStageStore } from '../../stores/voiceStageStore';
-import { useMediaStore } from '../../stores/mediaStore';
+import { useMediaStore, isScreenShareCentralLimited } from '../../stores/mediaStore';
 import { AvatarImage } from '../ui/AvatarImage';
 import { VoiceParticipantTile } from '../voice/VoiceParticipantTile';
 import { getVoiceRingClass } from '../voice/voiceRing';
@@ -35,6 +35,7 @@ import { ChatSearchPanel } from './ChatSearchPanel';
 import { ChatLoadingSkeleton } from './ChatLoadingSkeleton';
 import {
   buildLiveKitScreenCandidates,
+  buildUnplayableScreenShares,
   LiveKitScreenTile,
   LiveKitStreamStripTile,
   ScreenShareAudioMixer,
@@ -118,6 +119,7 @@ export function ChatArea() {
   const nativeLocalScreenActive = useMediaStore((s) => Boolean(s.activeSession?.isNativeVoice && s.isScreenShareEnabled));
   const nativeRemoteVideoFrames = useMediaStore((s) => s.nativeRemoteVideoFrames);
   const screenShareViewersByUser = useMediaStore((s) => s.screenShareViewersByUser);
+  const screenShareCentralLimited = useMediaStore(isScreenShareCentralLimited);
   const liveUserIdsByChannel = useVoiceStore((s) => s.liveUserIdsByChannel);
   const peerVolumeByUser = useVoiceStore((s) => s.peerVolumeByUser);
   const voiceSpeaking = useVoiceStore((s) => s.speakingByUser);
@@ -461,6 +463,13 @@ export function ChatArea() {
       new Map<string, RemoteScreenCandidate>([...legacyRemoteScreenCandidates, ...liveKitRemoteScreenCandidates].map((tile) => [tile.id, tile])).values(),
     );
     const remoteScreenTiles = remoteScreenCandidates;
+    const unplayableRemoteScreens = buildUnplayableScreenShares({
+      active: liveKitActive,
+      participants: mediaParticipants,
+      voiceUsers,
+      playableIds: new Set(remoteScreenCandidates.map((tile) => tile.id)),
+      selfUserId: localVoiceTileId ?? mediaLocalIdentity ?? user?.id,
+    }).filter((share) => !isSelfIdentity(share.id));
     const nativeRemoteScreenFrames = Object.values(nativeRemoteVideoFrames).filter((frame) => frame.kind === 'screen');
     const nativePrimaryScreen = nativeLocalScreenActive
       ? { id: 'native-local-screen', identity: localVoiceTileId ?? mediaLocalIdentity ?? '', trackSid: undefined, local: true, title: 'Your Screen' }
@@ -483,7 +492,7 @@ export function ChatArea() {
     ));
     const activeRemoteScreenTiles = joinedRemoteTiles.filter((tile): tile is RemoteScreenCandidate => Boolean(tile.stream));
     const reconnectingRemoteScreenTiles = joinedRemoteTiles.filter((tile) => !tile.stream);
-    const hasAnyScreenShareUi = Boolean(screenStream || liveKitSelfScreenCandidate || remoteScreenCandidates.length > 0 || joinedRemoteTiles.length > 0 || nativePrimaryScreen);
+    const hasAnyScreenShareUi = Boolean(screenStream || liveKitSelfScreenCandidate || remoteScreenCandidates.length > 0 || unplayableRemoteScreens.length > 0 || joinedRemoteTiles.length > 0 || nativePrimaryScreen);
     const liveKitCameraStreamsByUser = Object.values(mediaRemoteTracks).reduce<Record<string, MediaStream>>((acc, track) => {
       if (track.source !== 'camera' || track.kind !== 'video' || !track.mediaStream) return acc;
       acc[track.participantId] = track.mediaStream;
@@ -568,6 +577,7 @@ export function ChatArea() {
     const usersSharingScreen = new Set<string>([
       ...((screenStream || liveKitSelfScreenCandidate) ? Array.from(selfIdentitySet) : []),
       ...remoteScreenCandidates.map((tile) => tile.id),
+      ...unplayableRemoteScreens.map((share) => share.id),
       ...nativeRemoteScreenFrames.map((frame) => frame.identity),
     ]);
     const usersWatchingStream = new Set<string>(
@@ -659,6 +669,20 @@ export function ChatArea() {
             {voiceNotice && (
               <div className="mt-3 rounded-xl border border-warning/60 bg-warning/10 px-3 py-2 text-xs text-warning">
                 {voiceNotice}
+              </div>
+            )}
+            {screenShareCentralLimited && (
+              <div className="mt-3 rounded-xl border border-warning/60 bg-warning/10 px-3 py-2 text-xs text-warning">
+                Central has enforced limits on bitrate, ask the realm operators to host their own! If you are one, read the{' '}
+                <a
+                  href="https://catrealm.app/docs/#livekit-server"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline hover:opacity-80"
+                >
+                  docs
+                </a>{' '}
+                and have it set up to enjoy your streaming without limits!
               </div>
             )}
             {voiceError && (
@@ -774,6 +798,14 @@ export function ChatArea() {
                                   setSelectedStageStreamId(tile.id);
                                 }}
                               />
+                            ))}
+                          </div>
+                        )}
+
+                        {unplayableRemoteScreens.length > 0 && (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {unplayableRemoteScreens.map((share) => (
+                              <UnplayableStreamTile key={`unplayable-${share.id}`} username={share.username} mimeType={share.mimeType} />
                             ))}
                           </div>
                         )}
@@ -1358,6 +1390,39 @@ function StreamStripTile({
         {selected && <span className="text-[10px] font-semibold text-amber-300">Selected</span>}
       </div>
     </button>
+  );
+}
+
+function describeUnplayableCodec(mimeType: string) {
+  const codec = mimeType.replace(/^video\//i, '').toUpperCase();
+  if (codec === 'H264') {
+    return {
+      label: 'H.264',
+      help: 'Firefox-based browsers play H.264 through the OpenH264 plugin. Enable "OpenH264 Video Codec provided by Cisco Systems" in about:addons → Plugins, restart the browser and rejoin, or watch in the desktop app.',
+    };
+  }
+  if (codec === 'H265' || codec === 'HEVC') {
+    return { label: 'H.265', help: 'Watch it in the desktop app or a browser with H.265 (HEVC) support.' };
+  }
+  return { label: codec, help: 'Watch it in the desktop app or another browser.' };
+}
+
+function UnplayableStreamTile({ username, mimeType }: { username: string; mimeType: string }) {
+  const { label, help } = describeUnplayableCodec(mimeType);
+  return (
+    <div className="overflow-hidden rounded-2xl border border-white/15 bg-black/20 text-white shadow-[0_12px_28px_rgba(0,0,0,0.24)]">
+      <div className="relative aspect-video overflow-hidden bg-black/60">
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 p-4 text-center">
+          <div className="text-sm font-semibold">Can&apos;t play this stream</div>
+          <div className="text-xs text-white/70">It&apos;s encoded in {label}, which this browser can&apos;t decode.</div>
+        </div>
+        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/55 to-transparent px-3 py-2">
+          <div className="truncate text-sm font-semibold text-white">{username}&apos;s Screen</div>
+          <div className="truncate text-[11px] text-white/65">{username} is sharing</div>
+        </div>
+      </div>
+      <div className="px-3 py-3 text-xs text-white/65">{help}</div>
+    </div>
   );
 }
 

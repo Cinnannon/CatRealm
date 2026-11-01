@@ -164,6 +164,61 @@ function isConstraintFallbackError(error: unknown) {
     || name === 'NotFoundError';
 }
 
+type BrowserDisplayOptions = { width?: number; height?: number; frameRate: number; includeAudio: boolean };
+
+// Some browsers (notably Firefox and Safari) reject size/frame-rate limits
+// they cannot meet for the picked surface. Retry unconstrained, then apply
+// the limits as a best effort so the share still starts.
+export async function getBrowserDisplayMedia(options: BrowserDisplayOptions): Promise<MediaStream> {
+  const audio = options.includeAudio ? screenShareAudioConstraints() : false;
+  let stream: MediaStream | null = null;
+  try {
+    stream = await navigator.mediaDevices.getDisplayMedia({
+      video: {
+        frameRate: { ideal: options.frameRate },
+        width: { ideal: options.width, max: options.width },
+        height: { ideal: options.height, max: options.height },
+      },
+      audio,
+    } as MediaStreamConstraints);
+  } catch (error) {
+    const name = (error as { name?: string } | null)?.name;
+    if (name !== 'OverconstrainedError' && name !== 'ConstraintNotSatisfiedError' && name !== 'TypeError') throw error;
+    logVoiceDebug('livekit', 'screen share constraints rejected; retrying unconstrained', {
+      name: (error as { name?: string }).name ?? null,
+      constraint: (error as { constraint?: string }).constraint ?? null,
+    }, 'warn');
+  }
+  stream ??= await navigator.mediaDevices.getDisplayMedia({ video: true, audio: options.includeAudio } as MediaStreamConstraints);
+  const [track] = stream.getVideoTracks();
+  if (track) {
+    void applyScreenCaptureConstraints(track, {
+      frameRate: { ideal: options.frameRate, max: options.frameRate },
+      width: { ideal: options.width, max: options.width },
+      height: { ideal: options.height, max: options.height },
+    }, options.frameRate);
+  }
+  return stream;
+}
+
+// Chromium's screen capture only emits a frame when the screen changes, so a
+// mostly still screen sent ~20 fps (moving the mouse brought it back to 60).
+// A minimum frame rate makes it repeat the last frame to hold the rate, as the
+// desktop apps' minFrameRate does; getDisplayMedia() itself rejects `min`, so it
+// is applied afterwards. If a browser refuses `min`, keep the rest without it.
+export async function applyScreenCaptureConstraints(
+  track: MediaStreamTrack,
+  constraints: MediaTrackConstraints,
+  minFrameRate: number,
+): Promise<void> {
+  const frameRate = typeof constraints.frameRate === 'object' ? constraints.frameRate : {};
+  try {
+    await track.applyConstraints({ ...constraints, frameRate: { ...frameRate, min: minFrameRate } });
+  } catch {
+    await track.applyConstraints(constraints).catch(() => {});
+  }
+}
+
 function deviceVideoConstraints(
   options: Extract<CaptureScreenShareOptions, { kind: 'device' }>,
   strictFrameRate: boolean,
@@ -559,17 +614,47 @@ function electronDesktopVideoConstraints({
   width,
   height,
   frameRate,
-}: Omit<ElectronDesktopCaptureOptions, 'includeAudio'>) {
+}: Omit<ElectronDesktopCaptureOptions, 'includeAudio'>, relaxed = false) {
   return {
-    mandatory: {
-      chromeMediaSource: 'desktop',
-      chromeMediaSourceId: sourceId,
-      maxWidth: width,
-      maxHeight: height,
-      minFrameRate: frameRate,
-      maxFrameRate: frameRate,
-    },
+    mandatory: relaxed
+      ? { chromeMediaSource: 'desktop', chromeMediaSourceId: sourceId, maxFrameRate: frameRate }
+      : {
+          chromeMediaSource: 'desktop',
+          chromeMediaSourceId: sourceId,
+          maxWidth: width,
+          maxHeight: height,
+          minFrameRate: frameRate,
+          maxFrameRate: frameRate,
+        },
   };
+}
+
+// The frame-rate floor is what makes Chromium capture at the chosen rate, but
+// some sources (and Sushi's WebView2) cannot meet it and reject the request
+// with OverconstrainedError. Retry once with only the frame-rate ceiling.
+async function getDesktopUserMedia(
+  audio: MediaTrackConstraints | false,
+  capture: Omit<ElectronDesktopCaptureOptions, 'includeAudio'>,
+): Promise<MediaStream> {
+  try {
+    return await navigator.mediaDevices.getUserMedia({
+      audio,
+      video: electronDesktopVideoConstraints(capture),
+    } as MediaStreamConstraints);
+  } catch (error) {
+    const name = (error as { name?: string } | null)?.name;
+    if (name !== 'OverconstrainedError' && name !== 'ConstraintNotSatisfiedError') throw error;
+    logVoiceDebug('livekit', 'desktop capture constraints rejected; retrying without frame-rate floor', {
+      name,
+      constraint: (error as { constraint?: string }).constraint ?? null,
+      sourceId: capture.sourceId,
+      frameRate: capture.frameRate,
+    }, 'warn');
+    return navigator.mediaDevices.getUserMedia({
+      audio,
+      video: electronDesktopVideoConstraints(capture, true),
+    } as MediaStreamConstraints);
+  }
 }
 
 function electronDesktopAudioConstraints(sourceId?: string) {
@@ -619,7 +704,7 @@ export async function getElectronDesktopMediaStreamWithStatus({
   frameRate,
   includeAudio,
 }: ElectronDesktopCaptureOptions): Promise<CaptureScreenShareResult> {
-  const videoConstraints = electronDesktopVideoConstraints({ sourceId, width, height, frameRate });
+  const capture = { sourceId, width, height, frameRate };
   const isApplicationShare = sourceId.startsWith('window:');
   const desktopMetadata = {
     sourceType: isApplicationShare ? 'window' as const : 'screen' as const,
@@ -640,10 +725,7 @@ export async function getElectronDesktopMediaStreamWithStatus({
   const canCaptureRequestedAudio = includeAudio && (!isApplicationShare || support?.appAudio.available === true);
 
   if (includeAudio && isApplicationShare && support?.appAudio.available !== true) {
-    const videoStream = await navigator.mediaDevices.getUserMedia({
-      audio: false,
-      video: videoConstraints,
-    } as MediaStreamConstraints);
+    const videoStream = await getDesktopUserMedia(false, capture);
     const audioStatus = buildAudioStatus('none', true, support?.appAudio.reason ?? 'App audio capture is unavailable for this window.');
     rememberScreenShareAudioStatus(videoStream, audioStatus);
     rememberScreenShareCaptureMetadata(videoStream, 'desktop', frameRate, desktopMetadata, true);
@@ -651,10 +733,7 @@ export async function getElectronDesktopMediaStreamWithStatus({
   }
 
   if (includeAudio && isApplicationShare && support?.appAudio.available === true) {
-    const videoStream = await navigator.mediaDevices.getUserMedia({
-      audio: false,
-      video: videoConstraints,
-    } as MediaStreamConstraints);
+    const videoStream = await getDesktopUserMedia(false, capture);
     const appAudio = await createWindowsAppAudioStream(sourceId);
     if (!appAudio.ok) {
       const audioStatus = buildAudioStatus('none', true, appAudio.message ?? 'App audio capture failed for this window.');
@@ -676,10 +755,7 @@ export async function getElectronDesktopMediaStreamWithStatus({
   }
 
   try {
-    const combinedStream = await navigator.mediaDevices.getUserMedia({
-      audio: canCaptureRequestedAudio ? electronDesktopAudioConstraints(sourceId) : false,
-      video: videoConstraints,
-    } as MediaStreamConstraints);
+    const combinedStream = await getDesktopUserMedia(canCaptureRequestedAudio ? electronDesktopAudioConstraints(sourceId) as MediaTrackConstraints : false, capture);
     if (!canCaptureRequestedAudio || combinedStream.getAudioTracks().length > 0) {
       const audioStatus = combinedStream.getAudioTracks().length > 0
         ? buildAudioStatus(isApplicationShare ? 'app' : 'system', includeAudio)
@@ -693,10 +769,7 @@ export async function getElectronDesktopMediaStreamWithStatus({
     if (!canCaptureRequestedAudio) throw error;
   }
 
-  const videoStream = await navigator.mediaDevices.getUserMedia({
-    audio: false,
-    video: videoConstraints,
-  } as MediaStreamConstraints);
+  const videoStream = await getDesktopUserMedia(false, capture);
   const audioStream = await tryCaptureDesktopAudio(sourceId);
   if (!audioStream) {
     const audioStatus = buildAudioStatus('none', includeAudio, includeAudio ? 'Desktop audio capture is unavailable for this source.' : undefined);
@@ -868,14 +941,7 @@ export async function captureScreenShare(options: CaptureScreenShareOptions): Pr
     });
   }
 
-  const stream = await navigator.mediaDevices.getDisplayMedia({
-    video: {
-      frameRate: { ideal: options.frameRate },
-      width: { ideal: options.width, max: options.width },
-      height: { ideal: options.height, max: options.height },
-    },
-    audio: options.includeAudio ? screenShareAudioConstraints() : false,
-  } as MediaStreamConstraints);
+  const stream = await getBrowserDisplayMedia(options);
   const audioStatus = stream.getAudioTracks().length > 0
     ? buildAudioStatus('system', options.includeAudio)
     : buildAudioStatus('none', options.includeAudio, options.includeAudio ? 'The selected source did not include audio.' : undefined);

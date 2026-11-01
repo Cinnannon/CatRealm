@@ -6,6 +6,7 @@ import { clearRealtimeReconnectTarget } from '../../lib/realtimeReconnect';
 import { useVoiceStore } from '../../stores/voiceStore';
 import { useTheaterStore } from '../../stores/theaterStore';
 import { isHttpGatewayRealm } from '../../lib/httpRealmGateway';
+import { useMediaStore } from '../../stores/mediaStore';
 
 const RESTART_DELAY_S = 10;
 
@@ -34,6 +35,19 @@ export function ConnectionStatus() {
   const currentServerUrl = isCentral ? activeServerUrl : localServerUrl;
   const isGatewayRealm = isHttpGatewayRealm(currentServerUrl);
   const originalHttpOrigin = useServerStore((s) => s.servers.find((entry) => entry.url === currentServerUrl)?.originalHttpOrigin);
+  // Gateway realms can still reach voice/theater through Central Fallback.
+  const [gatewayFallback, setGatewayFallback] = useState<{ url: string; available: boolean } | null>(null);
+  useEffect(() => {
+    if (!isGatewayRealm || !currentServerUrl) return;
+    let cancelled = false;
+    void useMediaStore.getState().probeSelfHostCapability(currentServerUrl).then((capability) => {
+      if (cancelled) return;
+      const available = !!capability && !capability.enabled && (capability.liveKitFallbackContexts?.length ?? 0) > 0;
+      setGatewayFallback({ url: currentServerUrl, available });
+    });
+    return () => { cancelled = true; };
+  }, [isGatewayRealm, currentServerUrl]);
+  const gatewayHasFallback = gatewayFallback?.url === currentServerUrl && gatewayFallback.available;
 
   const visibleReconnectPrompt = reconnectPrompt && reconnectPrompt.serverUrl === currentServerUrl
     ? reconnectPrompt
@@ -85,7 +99,10 @@ export function ConnectionStatus() {
     <div className="relative z-40 shrink-0 flex flex-col">
       {isGatewayRealm ? (
         <div className="bg-warning text-white text-center text-sm py-1 font-medium">
-          {originalHttpOrigin || 'This realm'} uses HTTP between the gateway and its server. Voice and theater are unavailable here.
+          {originalHttpOrigin || 'This realm'} uses HTTP between the gateway and its server.{' '}
+          {gatewayHasFallback
+            ? 'Voice and theater use Central Fallback, but this Realm\'s own traffic is not encrypted.'
+            : 'Voice and theater are unavailable here.'}
         </div>
       ) : null}
       {visibleReconnectPrompt ? (

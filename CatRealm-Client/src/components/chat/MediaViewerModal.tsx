@@ -130,7 +130,7 @@ export function MediaViewerModal() {
     : '';
   const isVideo =
     current.type?.startsWith('video/') ||
-    current.url.toLowerCase().endsWith('.mp4');
+    /\.(mp4|webm)(\?.*)?$/i.test(current.url);
   const isKlipyMedia = isKlipyMediaUrl(current.url);
   const canDrag = !isVideo && zoom > 1;
   const downloadName = current.name ?? 'media';
@@ -429,7 +429,7 @@ export function MediaViewerModal() {
                   : 'border-transparent opacity-60 hover:opacity-100'
               }`}
             >
-              {item.type?.startsWith('video/') || item.url.toLowerCase().endsWith('.mp4') ? (
+              {item.type?.startsWith('video/') || /\.(mp4|webm)(\?.*)?$/i.test(item.url) ? (
                 <video
                   src={item.url}
                   className="w-full h-full object-cover"
