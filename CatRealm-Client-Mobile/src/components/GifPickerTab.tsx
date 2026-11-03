@@ -25,10 +25,21 @@ import { useTranslation } from 'react-i18next';
 import { Star } from 'lucide-react-native';
 import { useTheme } from '@/theme';
 import {
-  getGifFavorites, removeGifFavorite, saveGifFavorite, searchGifs, trendingGifs,
-  type GifAd, type GifFavorite, type GifItem, type GifProduct, type GifResult, type GifError,
+  searchGifs,
+  trendingGifs,
+  type GifAd,
+  type GifFavorite,
+  type GifItem,
+  type GifProduct,
+  type GifResult,
+  type GifError,
 } from '@/lib/gifApi';
 import { decideGifAdNavigation, isHttpAdUrl } from '@/lib/gifAdNavigation';
+import {
+  favoriteKey,
+  findFavoriteByUrl,
+  useGifFavoritesStore,
+} from '@/stores/gifFavoritesStore';
 
 interface GifPickerTabProps {
   onSelect: (gifUrl: string) => void;
@@ -39,10 +50,6 @@ interface GifPickerTabProps {
 const GIF_COLS = 2;
 const DEBOUNCE_MS = 300;
 type GifSection = GifProduct | 'favorites';
-
-function favoriteKey(product: GifProduct, id: string): string {
-  return `${product}:${id}`;
-}
 
 /**
  * The grid is two columns but an ad is a full-width banner, and FlatList can't
@@ -123,48 +130,20 @@ export function GifPickerTab({ onSelect, width: pickerWidth }: GifPickerTabProps
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [errorCode, setErrorCode] = useState<GifError['code'] | null>(null);
-  const [favorites, setFavorites] = useState<GifFavorite[]>([]);
-  const [favoritesLoading, setFavoritesLoading] = useState(true);
-  const [favoritesError, setFavoritesError] = useState<'load' | 'update' | null>(null);
-  const [favoriteBusy, setFavoriteBusy] = useState<Set<string>>(new Set());
+
+  const favorites = useGifFavoritesStore((s) => s.favorites);
+  const favoritesLoading = useGifFavoritesStore((s) => s.loading);
+  const favoritesError = useGifFavoritesStore((s) => s.error);
+  const favoriteBusy = useGifFavoritesStore((s) => s.busy);
+  const loadFavorites = useGifFavoritesStore((s) => s.load);
+  const toggleFavorite = useGifFavoritesStore((s) => s.toggle);
 
   // Guards against a stale in-flight request applying after the query changed.
   const requestSeq = useRef(0);
 
-  const loadFavorites = useCallback(async () => {
-    setFavoritesLoading(true);
-    setFavoritesError(null);
-    try {
-      setFavorites(await getGifFavorites());
-    } catch {
-      setFavoritesError('load');
-    } finally {
-      setFavoritesLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { void loadFavorites(); }, [loadFavorites]);
-
-  const toggleFavorite = useCallback(async (item: GifItem, product: GifProduct) => {
-    const key = favoriteKey(product, item.id);
-    if (favoriteBusy.has(key) || favoritesLoading) return;
-    const alreadySaved = favorites.some((favorite) => favoriteKey(favorite.product, favorite.id) === key);
-    setFavoriteBusy((prev) => new Set(prev).add(key));
-    setFavoritesError(null);
-    try {
-      if (alreadySaved) {
-        await removeGifFavorite(item.id, product);
-        setFavorites((prev) => prev.filter((favorite) => favoriteKey(favorite.product, favorite.id) !== key));
-      } else {
-        const saved = await saveGifFavorite(item, product);
-        setFavorites((prev) => [saved, ...prev.filter((favorite) => favoriteKey(favorite.product, favorite.id) !== key)]);
-      }
-    } catch {
-      setFavoritesError('update');
-    } finally {
-      setFavoriteBusy((prev) => { const next = new Set(prev); next.delete(key); return next; });
-    }
-  }, [favoriteBusy, favorites, favoritesLoading]);
+  useEffect(() => {
+    void loadFavorites();
+  }, [loadFavorites]);
 
   const runQuery = useCallback(async (q: string, source: GifProduct) => {
     const seq = ++requestSeq.current;
@@ -188,9 +167,9 @@ export function GifPickerTab({ onSelect, width: pickerWidth }: GifPickerTabProps
 
   // Switching library clears the query: a search is scoped to one library, and
   // carrying terms across makes the empty state look like a failure.
-  const selectSection = useCallback((next: GifSection) => {
+  const selectSection = useCallback((nextSection: GifSection) => {
     requestSeq.current++;
-    setSection(next);
+    setSection(nextSection);
     setQuery('');
     setLoading(false);
     setLoadingMore(false);
@@ -313,8 +292,10 @@ export function GifPickerTab({ onSelect, width: pickerWidth }: GifPickerTabProps
                 {row.items.map((gif) => {
                   const itemProduct = section === 'favorites' ? (gif as GifFavorite).product : section;
                   const key = favoriteKey(itemProduct, gif.id);
-                  const saved = favorites.some((favorite) => favoriteKey(favorite.product, favorite.id) === key);
-                  const busy = favoritesLoading || favoriteBusy.has(key);
+                  const saved =
+                    favorites.some((favorite) => favoriteKey(favorite.product, favorite.id) === key) ||
+                    Boolean(findFavoriteByUrl(favorites, gif.url));
+                  const busy = favoritesLoading || Boolean(favoriteBusy[key]);
                   return (
                     <View key={key} style={[styles.cell, { width: gifCell, backgroundColor: theme.colors.bgElev2, borderColor: theme.colors.lineSoft }]}>
                       <Pressable onPress={() => { onSelect(gif.url); }}>

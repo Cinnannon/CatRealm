@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Animated, FlatList, Image, Linking, Modal, Pressable, Share, StyleSheet, View, useWindowDimensions, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
-import { ArrowDownToLine, Ellipsis, ExternalLink, Forward, Milestone, Share2, X } from 'lucide-react-native';
+import { ArrowDownToLine, Ellipsis, ExternalLink, Forward, Milestone, Share2, Star, X } from 'lucide-react-native';
 import * as FileSystem from 'expo-file-system';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
@@ -12,6 +12,7 @@ import { useTheme } from '@/theme';
 import { useAuthStore } from '@/stores/authStore';
 import { useServerStore } from '@/stores/serverStore';
 import { useUIStore } from '@/stores/uiStore';
+import { findFavoriteByUrl, isGifMediaUrl, useGifFavoritesStore } from '@/stores/gifFavoritesStore';
 import { CatRealmVideoControls } from './CatRealmVideoControls';
 import { Text } from './Text';
 
@@ -238,6 +239,17 @@ export function MediaViewerModal() {
 
   const activeUrl = active?.url ?? null;
   const activeName = active?.name ?? t('chat.mediaDefault');
+  const activeIsGif = isGifMediaUrl(activeUrl);
+  const activeGifStarred = useGifFavoritesStore((s) =>
+    activeIsGif && activeUrl ? Boolean(findFavoriteByUrl(s.favorites, activeUrl)) : false,
+  );
+  const toggleGifFavoriteUrl = useGifFavoritesStore((s) => s.toggleUrl);
+
+  useEffect(() => {
+    if (open && activeIsGif) {
+      void useGifFavoritesStore.getState().ensureLoaded();
+    }
+  }, [open, activeIsGif]);
   const pageLabel = useMemo(() => {
     if (items.length <= 1) return null;
     return `${index + 1}/${items.length}`;
@@ -395,6 +407,20 @@ export function MediaViewerModal() {
               <Text numberOfLines={1} style={{ color: theme.colors.text, flex: 1 }}>
                 {activeName}
               </Text>
+              {activeIsGif && activeUrl ? (
+                <Pressable
+                  style={styles.closeBtn}
+                  onPress={() => void toggleGifFavoriteUrl(activeUrl)}
+                  accessibilityRole="button"
+                  accessibilityLabel={activeGifStarred ? t('gif.removeFavorite') : t('gif.favoriteGif')}
+                >
+                  <Star
+                    size={20}
+                    color={activeGifStarred ? '#facc15' : theme.colors.text}
+                    fill={activeGifStarred ? '#facc15' : 'transparent'}
+                  />
+                </Pressable>
+              ) : null}
               <Pressable style={styles.closeBtn} onPress={() => setMenuOpen((prev) => !prev)}>
                 <Ellipsis size={22} color={theme.colors.text} />
               </Pressable>

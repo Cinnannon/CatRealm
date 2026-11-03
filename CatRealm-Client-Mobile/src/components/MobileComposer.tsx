@@ -965,7 +965,7 @@ export function MobileComposer({
         expressionLookup={effectiveExpressionLookup}
         serverUrl={effectiveServerUrl}
         canLoadExpressions={Boolean(effectiveServerUrl || token)}
-        gifPickerEnabled={isCentralAccount}
+        gifPickerEnabled={Boolean(isCentralAccount || true)}
         onSelectGif={(gifUrl) => { onSend(gifUrl); setPickerOpen(false); }}
       />
       <BotCommandPicker

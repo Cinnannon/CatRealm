@@ -13,7 +13,7 @@ import {
 import { Image as ExpoImage, type ImageLoadEventData } from 'expo-image';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { WebView } from 'react-native-webview';
-import { FileText, Play, Film, Mic, X } from 'lucide-react-native';
+import { FileText, Play, Film, Mic, Star, X } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/theme';
 import { ImagePlaceholder } from './ImagePlaceholder';
@@ -34,6 +34,7 @@ import { useLinkPreview } from '@/lib/linkPreview';
 import { isAudioAttachment } from '@/lib/voiceMessages';
 import { MentionText } from './MentionText';
 import { VoiceMessagePlayer } from './VoiceMessagePlayer';
+import { findFavoriteByUrl, isGifMediaUrl, useGifFavoritesStore } from '@/stores/gifFavoritesStore';
 
 // ─── Inline span types ─────────────────────────────────────────────────────
 // Formatting spans carry children (recursive) so nesting works correctly.
@@ -678,6 +679,47 @@ const SINGLE_IMAGE_MAX_WIDTH = 520;
 const KLIPY_IMAGE_MAX_WIDTH = 360;
 const KLIPY_IMAGE_MAX_HEIGHT = 300;
 
+
+function GifFavoriteStarOverlay({ url, mime }: { url: string; mime?: string | null }) {
+  const { t } = useTranslation();
+  const isGif = isGifMediaUrl(url, mime);
+  const starred = useGifFavoritesStore((s) => (isGif ? Boolean(findFavoriteByUrl(s.favorites, url)) : false));
+  const toggleUrl = useGifFavoritesStore((s) => s.toggleUrl);
+
+  useEffect(() => {
+    if (isGif) {
+      void useGifFavoritesStore.getState().ensureLoaded();
+    }
+  }, [isGif]);
+
+  if (!isGif) return null;
+
+  return (
+    <Pressable
+      onPress={(e) => {
+        e?.stopPropagation?.();
+        void toggleUrl(url);
+      }}
+      hitSlop={6}
+      accessibilityRole="button"
+      accessibilityLabel={starred ? t('gif.removeFavorite') : t('gif.favoriteGif')}
+      style={[
+        styles.gifStarBtn,
+        {
+          backgroundColor: starred ? 'rgba(20, 16, 10, 0.82)' : 'rgba(10, 12, 18, 0.64)',
+          borderColor: starred ? 'rgba(250, 204, 21, 0.58)' : 'rgba(255, 255, 255, 0.18)',
+        },
+      ]}
+    >
+      <Star
+        size={14}
+        color={starred ? '#facc15' : '#ffffff'}
+        fill={starred ? '#facc15' : 'transparent'}
+      />
+    </Pressable>
+  );
+}
+
 function isKlipyMediaUrl(url: string): boolean {
   try {
     const host = new URL(url).hostname.toLowerCase();
@@ -737,11 +779,14 @@ function SingleChatImage({ block, shouldBlur, nsfwLabels, onReveal, onPress, ser
 
   return (
     <View style={styles.imageWrap} onLayout={handleLayout}>
-      <Pressable onPress={() => onPress(block)}>
-        {!loaded && failedUri !== imageUri && <ImagePlaceholder radius={8} mark style={{ width: imageStyle.width, height: imageStyle.height }} />}
-        {failedUri === imageUri && <ImageFailed width={imageStyle.width} height={imageStyle.height} />}
-        <ExpoImage source={{ uri: imageUri }} style={imageStyle} contentFit="cover" cachePolicy="disk" recyclingKey={imageUri} autoplay={autoplay} transition={transition} onLoad={handleLoad} onError={() => setFailedUri(imageUri)} accessibilityLabel={block.name ?? t('chat.imageAlt')} />
-      </Pressable>
+      <View style={{ position: 'relative', alignSelf: 'flex-start', width: imageStyle.width }}>
+        <Pressable onPress={() => onPress(block)}>
+          {!loaded && failedUri !== imageUri && <ImagePlaceholder radius={8} mark style={{ width: imageStyle.width, height: imageStyle.height }} />}
+          {failedUri === imageUri && <ImageFailed width={imageStyle.width} height={imageStyle.height} />}
+          <ExpoImage source={{ uri: imageUri }} style={imageStyle} contentFit="cover" cachePolicy="disk" recyclingKey={imageUri} autoplay={autoplay} transition={transition} onLoad={handleLoad} onError={() => setFailedUri(imageUri)} accessibilityLabel={block.name ?? t('chat.imageAlt')} />
+        </Pressable>
+        <GifFavoriteStarOverlay url={block.url} mime={block.mime} />
+      </View>
     </View>
   );
 }
@@ -789,11 +834,14 @@ function GalleryImage({ img, index, shouldBlur, nsfwLabels, onReveal, onPress, s
           )}
         </Pressable>
       ) : (
-        <Pressable onPress={() => onPress(img)} style={{ flex: 1 }}>
-          {!loaded && failedUri !== uri && <ImagePlaceholder mark />}
-          {failedUri === uri && <ImageFailed width={GALLERY_THUMB} height={GALLERY_THUMB} />}
-          <ExpoImage source={{ uri }} style={{ width: GALLERY_THUMB, height: GALLERY_THUMB }} contentFit="cover" cachePolicy="disk" recyclingKey={uri} transition={transition} onLoad={markLoaded} onError={() => setFailedUri(uri)} accessibilityLabel={img.name ?? t('chat.imageAlt')} />
-        </Pressable>
+        <View style={{ flex: 1, position: 'relative' }}>
+          <Pressable onPress={() => onPress(img)} style={{ flex: 1 }}>
+            {!loaded && failedUri !== uri && <ImagePlaceholder mark />}
+            {failedUri === uri && <ImageFailed width={GALLERY_THUMB} height={GALLERY_THUMB} />}
+            <ExpoImage source={{ uri }} style={{ width: GALLERY_THUMB, height: GALLERY_THUMB }} contentFit="cover" cachePolicy="disk" recyclingKey={uri} transition={transition} onLoad={markLoaded} onError={() => setFailedUri(uri)} accessibilityLabel={img.name ?? t('chat.imageAlt')} />
+          </Pressable>
+          <GifFavoriteStarOverlay url={img.url} mime={img.mime} />
+        </View>
       )}
     </View>
   );
@@ -1348,6 +1396,18 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     overflow: 'hidden',
     marginVertical: 2,
+  },
+  gifStarBtn: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 5,
   },
   nsfwOverlay: {
     ...StyleSheet.absoluteFill,
