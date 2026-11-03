@@ -45,20 +45,31 @@ export function ServerDrawer() {
       PanResponder.create({
         onStartShouldSetPanResponder: () => false,
         onMoveShouldSetPanResponder: (_evt, g) =>
-          g.dx < -10 && Math.abs(g.dx) > Math.abs(g.dy) * 1.3,
+          open && g.dx < -8 && Math.abs(g.dx) > Math.abs(g.dy) * 1.25,
+        onMoveShouldSetPanResponderCapture: (_evt, g) =>
+          open && g.dx < -10 && Math.abs(g.dx) > Math.abs(g.dy) * 1.25,
         onPanResponderMove: (_evt, g) => {
           if (g.dx >= 0) return;
           if (g.dx <= -48) {
             setOpen(false);
             return;
           }
-          slideAnim.setValue(Math.max(-drawerWidth, g.dx));
-          fadeAnim.setValue(Math.max(0, 1 + g.dx / Math.max(1, drawerWidth)));
+          const scaledDx = g.dx * 1.4;
+          slideAnim.setValue(Math.max(-drawerWidth, scaledDx));
+          fadeAnim.setValue(Math.max(0, 1 + scaledDx / Math.max(1, drawerWidth)));
         },
         onPanResponderRelease: (_evt, g) => {
-          if (g.dx <= -38 || (g.dx < -20 && g.vx < -0.35)) {
+          if (g.dx <= -36 || (g.dx < -18 && g.vx < -0.3)) {
             setOpen(false);
           } else if (open) {
+            Animated.parallel([
+              Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, damping: 22, stiffness: 260 }),
+              Animated.timing(fadeAnim, { toValue: 1, duration: 120, useNativeDriver: true }),
+            ]).start();
+          }
+        },
+        onPanResponderTerminate: () => {
+          if (open) {
             Animated.parallel([
               Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, damping: 22, stiffness: 260 }),
               Animated.timing(fadeAnim, { toValue: 1, duration: 120, useNativeDriver: true }),
@@ -87,7 +98,7 @@ export function ServerDrawer() {
   };
 
   return (
-    <View style={StyleSheet.absoluteFill} pointerEvents={open ? 'box-none' : 'none'}>
+    <View style={StyleSheet.absoluteFill} pointerEvents={open ? 'auto' : 'none'} {...closePanResponder.panHandlers}>
       {/* Dimmed backdrop */}
       <Animated.View
         style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.42)', opacity: fadeAnim }]}
@@ -98,7 +109,6 @@ export function ServerDrawer() {
 
       {/* Sliding drawer */}
       <Animated.View
-        {...closePanResponder.panHandlers}
         style={[
           styles.drawer,
           {

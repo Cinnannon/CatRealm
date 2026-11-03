@@ -12,6 +12,7 @@ import * as Haptics from 'expo-haptics';
 import { CornerUpLeft } from 'lucide-react-native';
 import { useTheme } from '@/theme';
 import { useUIStore } from '@/stores/uiStore';
+import { useDeviceLayout } from '@/hooks/useDeviceLayout';
 import {
   beginDrawerOpenDrag,
   endDrawerOpenDrag,
@@ -27,28 +28,41 @@ function triggerLightHaptic() {
   void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
 }
 
+function isAnySidebarOpen(): boolean {
+  const state = useUIStore.getState();
+  return Boolean(state.channelsSheetOpen || state.serverDrawerOpen);
+}
+
 interface SwipeableMessageRowProps {
   children: ReactNode;
   /** Called when the user swipes the message to the left past threshold. */
   onReply?: () => void;
   /** Called when the user swipes to the right past threshold (defaults to opening ChannelsSheet). */
   onSwipeLeft?: () => void;
+  /** Explicitly disable opening the sidebar via swipe (defaults to true when `isTablet` is true). */
+  disableSidebarSwipe?: boolean;
   disabled?: boolean;
 }
 
 /**
  * Wraps a chat message row with horizontal gestures:
  * - Swipe left (`dx <= -52`) -> Reply to message (with animated CornerUpLeft indicator on the right)
- * - Swipe right (`dx > 0`) -> Live-drags and immediately opens the left sidebar (Servers & Channels drawer)
+ * - Swipe right (`dx > 0`) -> Live-drags and immediately opens the left sidebar (only when sidebar is not already visible on large screens)
  */
 export function SwipeableMessageRow({
   children,
   onReply,
   onSwipeLeft,
+  disableSidebarSwipe,
   disabled = false,
 }: SwipeableMessageRowProps) {
   const theme = useTheme();
+  const { isTablet } = useDeviceLayout();
+  const sidebarSwipeDisabled = disableSidebarSwipe ?? isTablet;
+
   const translateX = useRef(new Animated.Value(0)).current;
+  const gestureModeRef = useRef<'reply' | 'sidebar' | null>(null);
+  const peakDxRef = useRef(0);
   const thresholdCrossedRef = useRef(false);
   const drawerDragStartedRef = useRef(false);
   const drawerOpenedDuringMoveRef = useRef(false);
@@ -57,6 +71,8 @@ export function SwipeableMessageRow({
   onReplyRef.current = onReply;
   const onOpenSidebarRef = useRef(onSwipeLeft);
   onOpenSidebarRef.current = onSwipeLeft;
+  const sidebarSwipeDisabledRef = useRef(sidebarSwipeDisabled);
+  sidebarSwipeDisabledRef.current = sidebarSwipeDisabled;
 
   const triggerOpenSidebar = () => {
     if (onOpenSidebarRef.current) {
@@ -66,64 +82,96 @@ export function SwipeableMessageRow({
     }
   };
 
+  const triggerCloseSidebar = () => {
+    const ui = useUIStore.getState();
+    if (ui.channelsSheetOpen) ui.setChannelsSheetOpen(false);
+    if (ui.serverDrawerOpen) ui.setServerDrawerOpen(false);
+  };
+
   const panResponder = useMemo(
     () =>
       PanResponder.create({
         onStartShouldSetPanResponder: () => false,
         onMoveShouldSetPanResponder: (_evt, gestureState) => {
-          if (disabled) return false;
+          if (disabled || isAnySidebarOpen()) return false;
           const { dx, dy } = gestureState;
           const absDx = Math.abs(dx);
           const absDy = Math.abs(dy);
           // Claim only clear horizontal drags so vertical FlatList scrolling is never blocked
           if (absDx < 10 || absDx < absDy * 1.3) return false;
           if (dx < 0 && !onReplyRef.current) return false;
+          if (dx > 0 && sidebarSwipeDisabledRef.current) return false;
           return true;
         },
         onMoveShouldSetPanResponderCapture: (_evt, gestureState) => {
-          if (disabled) return false;
+          if (disabled || isAnySidebarOpen()) return false;
           const { dx, dy } = gestureState;
           const absDx = Math.abs(dx);
           const absDy = Math.abs(dy);
           if (absDx < 14 || absDx < absDy * 1.5) return false;
           if (dx < 0 && !onReplyRef.current) return false;
+          if (dx > 0 && sidebarSwipeDisabledRef.current) return false;
           return true;
         },
         onPanResponderGrant: () => {
+          gestureModeRef.current = null;
+          peakDxRef.current = 0;
           thresholdCrossedRef.current = false;
           drawerDragStartedRef.current = false;
           drawerOpenedDuringMoveRef.current = false;
         },
         onPanResponderMove: (_evt, gestureState) => {
           const { dx } = gestureState;
-          if (dx < 0 && onReplyRef.current) {
-            // Swipe message left to reply
-            const damped = Math.max(MIN_TRANSLATE_X, dx * 0.68);
+
+          if (gestureModeRef.current === null) {
+            if (dx < 0 && onReplyRef.current && !isAnySidebarOpen()) {
+              gestureModeRef.current = 'reply';
+            } else if (dx > 0 && !sidebarSwipeDisabledRef.current && !isAnySidebarOpen()) {
+              gestureModeRef.current = 'sidebar';
+            } else {
+              return;
+            }
+          }
+
+          if (gestureModeRef.current === 'reply') {
+            // Swipe message left to reply — never affects sidebar
+            const clampedNegDx = Math.min(0, dx);
+            const damped = Math.max(MIN_TRANSLATE_X, clampedNegDx * 0.68);
             translateX.setValue(damped);
-            if (dx <= REPLY_TRIGGER_DX && !thresholdCrossedRef.current) {
+            if (clampedNegDx <= REPLY_TRIGGER_DX && !thresholdCrossedRef.current) {
               thresholdCrossedRef.current = true;
               triggerLightHaptic();
-            } else if (dx > REPLY_TRIGGER_DX && thresholdCrossedRef.current) {
+            } else if (clampedNegDx > REPLY_TRIGGER_DX && thresholdCrossedRef.current) {
               thresholdCrossedRef.current = false;
             }
-          } else if (dx > 0) {
-            // Live-drag and immediately open the left sidebar without waiting for thumb release
-            if (!drawerDragStartedRef.current) {
+          } else if (gestureModeRef.current === 'sidebar') {
+            peakDxRef.current = Math.max(peakDxRef.current, dx);
+            if (!drawerDragStartedRef.current && dx > 0) {
               drawerDragStartedRef.current = true;
               beginDrawerOpenDrag();
             }
             if (!drawerOpenedDuringMoveRef.current) {
-              updateDrawerOpenDrag(dx * 1.5);
+              updateDrawerOpenDrag(Math.max(0, dx) * 1.5);
               if (dx >= OPEN_SIDEBAR_TRIGGER_DX) {
                 drawerOpenedDuringMoveRef.current = true;
                 triggerLightHaptic();
                 endDrawerOpenDrag(true, triggerOpenSidebar);
               }
+            } else if (dx < peakDxRef.current - 38 || dx <= 10) {
+              // User reversed swipe direction to the left during the same drag -> close sidebar
+              drawerOpenedDuringMoveRef.current = false;
+              drawerDragStartedRef.current = false;
+              peakDxRef.current = Math.max(0, dx);
+              triggerLightHaptic();
+              triggerCloseSidebar();
+              endDrawerOpenDrag(false, triggerOpenSidebar);
             }
           }
         },
         onPanResponderRelease: (_evt, gestureState) => {
           const { dx, vx } = gestureState;
+          const mode = gestureModeRef.current;
+
           Animated.spring(translateX, {
             toValue: 0,
             useNativeDriver: true,
@@ -131,13 +179,18 @@ export function SwipeableMessageRow({
             stiffness: 240,
           }).start();
 
-          if (dx <= REPLY_TRIGGER_DX || (dx < -28 && vx < -0.55)) {
-            onReplyRef.current?.();
-          } else if (drawerDragStartedRef.current && !drawerOpenedDuringMoveRef.current) {
+          if (mode === 'reply') {
+            if (dx <= REPLY_TRIGGER_DX || (dx < -28 && vx < -0.55)) {
+              onReplyRef.current?.();
+            }
+          } else if (mode === 'sidebar' && drawerDragStartedRef.current && !drawerOpenedDuringMoveRef.current) {
             const shouldOpen = dx >= OPEN_SIDEBAR_TRIGGER_DX || (dx > 24 && vx > 0.35);
             if (shouldOpen) triggerLightHaptic();
             endDrawerOpenDrag(shouldOpen, triggerOpenSidebar);
           }
+
+          gestureModeRef.current = null;
+          peakDxRef.current = 0;
           thresholdCrossedRef.current = false;
           drawerDragStartedRef.current = false;
           drawerOpenedDuringMoveRef.current = false;
@@ -149,9 +202,11 @@ export function SwipeableMessageRow({
             damping: 20,
             stiffness: 240,
           }).start();
-          if (drawerDragStartedRef.current && !drawerOpenedDuringMoveRef.current) {
+          if (gestureModeRef.current === 'sidebar' && drawerDragStartedRef.current && !drawerOpenedDuringMoveRef.current) {
             endDrawerOpenDrag(false, triggerOpenSidebar);
           }
+          gestureModeRef.current = null;
+          peakDxRef.current = 0;
           thresholdCrossedRef.current = false;
           drawerDragStartedRef.current = false;
           drawerOpenedDuringMoveRef.current = false;
@@ -205,6 +260,7 @@ interface SwipeSidebarContainerProps {
 /**
  * Container wrapper for chat / hub screens so swiping right anywhere on the screen
  * live-drags and immediately opens the Servers & Channels left sidebar while the thumb is still moving.
+ * Automatically disabled on large/tablet screens where the sidebar is already visible.
  */
 export function SwipeSidebarContainer({
   children,
@@ -212,10 +268,16 @@ export function SwipeSidebarContainer({
   onOpenSidebar,
   disabled = false,
 }: SwipeSidebarContainerProps) {
+  const { isTablet } = useDeviceLayout();
+  const effectiveDisabled = disabled || isTablet;
+  const effectiveDisabledRef = useRef(effectiveDisabled);
+  effectiveDisabledRef.current = effectiveDisabled;
+
   const onOpenRef = useRef(onOpenSidebar);
   onOpenRef.current = onOpenSidebar;
   const drawerDragStartedRef = useRef(false);
   const drawerOpenedDuringMoveRef = useRef(false);
+  const peakDxRef = useRef(0);
 
   const triggerOpen = () => {
     if (onOpenRef.current) {
@@ -225,12 +287,18 @@ export function SwipeSidebarContainer({
     }
   };
 
+  const triggerClose = () => {
+    const ui = useUIStore.getState();
+    if (ui.channelsSheetOpen) ui.setChannelsSheetOpen(false);
+    if (ui.serverDrawerOpen) ui.setServerDrawerOpen(false);
+  };
+
   const panResponder = useMemo(
     () =>
       PanResponder.create({
         onStartShouldSetPanResponder: () => false,
         onMoveShouldSetPanResponder: (_evt, gestureState) => {
-          if (disabled) return false;
+          if (effectiveDisabledRef.current || isAnySidebarOpen()) return false;
           const { dx, dy } = gestureState;
           const absDx = Math.abs(dx);
           const absDy = Math.abs(dy);
@@ -241,21 +309,30 @@ export function SwipeSidebarContainer({
         onPanResponderGrant: () => {
           drawerDragStartedRef.current = false;
           drawerOpenedDuringMoveRef.current = false;
+          peakDxRef.current = 0;
         },
         onPanResponderMove: (_evt, gestureState) => {
           const { dx } = gestureState;
-          if (dx <= 0) return;
-          if (!drawerDragStartedRef.current) {
+          peakDxRef.current = Math.max(peakDxRef.current, dx);
+          if (!drawerDragStartedRef.current && dx > 0) {
             drawerDragStartedRef.current = true;
             beginDrawerOpenDrag();
           }
           if (!drawerOpenedDuringMoveRef.current) {
+            if (dx <= 0) return;
             updateDrawerOpenDrag(dx * 1.5);
             if (dx >= OPEN_SIDEBAR_TRIGGER_DX) {
               drawerOpenedDuringMoveRef.current = true;
               triggerLightHaptic();
               endDrawerOpenDrag(true, triggerOpen);
             }
+          } else if (dx < peakDxRef.current - 38 || dx <= 10) {
+            drawerOpenedDuringMoveRef.current = false;
+            drawerDragStartedRef.current = false;
+            peakDxRef.current = Math.max(0, dx);
+            triggerLightHaptic();
+            triggerClose();
+            endDrawerOpenDrag(false, triggerOpen);
           }
         },
         onPanResponderRelease: (_evt, gestureState) => {
@@ -267,6 +344,7 @@ export function SwipeSidebarContainer({
           }
           drawerDragStartedRef.current = false;
           drawerOpenedDuringMoveRef.current = false;
+          peakDxRef.current = 0;
         },
         onPanResponderTerminate: () => {
           if (drawerDragStartedRef.current && !drawerOpenedDuringMoveRef.current) {
@@ -274,9 +352,10 @@ export function SwipeSidebarContainer({
           }
           drawerDragStartedRef.current = false;
           drawerOpenedDuringMoveRef.current = false;
+          peakDxRef.current = 0;
         },
       }),
-    [disabled],
+    [],
   );
 
   return (
