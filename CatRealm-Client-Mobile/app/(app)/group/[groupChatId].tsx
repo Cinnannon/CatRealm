@@ -17,7 +17,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Bell, BellOff, ChevronLeft, CornerUpLeft, Phone, Users, X } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/theme';
-import { Text, Avatar, Pressable, MobileComposer, TranslatableMarkdownText, MessageActionSheet } from '@/components';
+import { Text, Avatar, Pressable, MobileComposer, TranslatableMarkdownText, MessageActionSheet, SwipeableMessageRow, SwipeSidebarContainer } from '@/components';
 import { ReactionChips } from '@/components/ReactionChips';
 import { GroupMembersSheet } from '@/components/GroupMembersSheet';
 import { AUTH_BASE } from '@/lib/api';
@@ -286,7 +286,7 @@ export default function GroupChatScreen() {
           </Pressable>
         </View>
 
-        <View style={{ flex: 1, overflow: 'hidden' }}>
+        <SwipeSidebarContainer style={{ overflow: 'hidden' }}>
           <View style={{ flex: 1 }}>
             {loading ? (
               <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
@@ -319,15 +319,20 @@ export default function GroupChatScreen() {
                 renderItem={({ item, index }) => {
                   const prev = displayMessages[index + 1] ?? null;
                   return (
-                    <GroupMessageRow
-                      message={item}
-                      prev={prev}
-                      mediaUrl={mediaUrl}
-                      imageScope={imageScope}
-                      expressionLookup={expressionLookup}
-                      onLongPress={handleMessageLongPress}
-                      onToggleReaction={handleToggleReaction}
-                    />
+                    <SwipeableMessageRow
+                      disabled={item.messageType === 'system'}
+                      onReply={() => setReplyToMessage(item)}
+                    >
+                      <GroupMessageRow
+                        message={item}
+                        prev={prev}
+                        mediaUrl={mediaUrl}
+                        imageScope={imageScope}
+                        expressionLookup={expressionLookup}
+                        onLongPress={handleMessageLongPress}
+                        onToggleReaction={handleToggleReaction}
+                      />
+                    </SwipeableMessageRow>
                   );
                 }}
               />
@@ -357,7 +362,7 @@ export default function GroupChatScreen() {
               serverUrl={mediaUrl}
             />
           </View>
-        </View>
+        </SwipeSidebarContainer>
       </SafeAreaView>
 
       {groupChatId ? (

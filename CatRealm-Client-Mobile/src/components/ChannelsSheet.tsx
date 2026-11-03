@@ -11,6 +11,7 @@ import {
   Image,
   Keyboard,
   Modal,
+  PanResponder,
   Pressable as RNPressable,
   StyleSheet,
   View,
@@ -183,6 +184,20 @@ export function ChannelsSheet() {
   const restoredScrollRef = useRef(false);
 
   const { slideAnim, fadeAnim, mounted } = useDrawerTransition(open, drawerWidth, () => finishDrawerClose('channels'), closeRequested);
+  const closePanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponder: (_evt, g) =>
+          g.dx < -14 && Math.abs(g.dx) > Math.abs(g.dy) * 1.4,
+        onPanResponderRelease: (_evt, g) => {
+          if (g.dx < -46 || (g.dx < -24 && g.vx < -0.45)) {
+            setOpen(false);
+          }
+        },
+      }),
+    [setOpen],
+  );
   useEffect(() => {
     if (!mounted) restoredScrollRef.current = false;
   }, [mounted]);
@@ -398,6 +413,7 @@ export function ChannelsSheet() {
 
       {/* Drawer */}
       <Animated.View
+        {...closePanResponder.panHandlers}
         style={[
           styles.drawer,
           {

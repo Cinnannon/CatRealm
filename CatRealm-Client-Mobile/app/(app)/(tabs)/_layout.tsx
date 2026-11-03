@@ -5,12 +5,11 @@
  */
 
 import { useRef } from 'react';
-import { View } from 'react-native';
 import { SafeAreaInsetsContext, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Tabs, useRouter } from 'expo-router';
 import { Home, Cat, MessageCircle, Bell } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
-import { Avatar, TopHubBar } from '@/components';
+import { Avatar, TopHubBar, SwipeSidebarContainer } from '@/components';
 import { useTheme } from '@/theme';
 import { useChannelStore } from '@/stores/channelStore';
 import { useAuthStore } from '@/stores/authStore';
@@ -62,7 +61,7 @@ export default function TabsLayout() {
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: theme.colors.bgApp }}>
+    <SwipeSidebarContainer style={{ backgroundColor: theme.colors.bgApp }}>
       <TopHubBar />
       <SafeAreaInsetsContext.Provider value={{ ...insets, top: 0 }}>
         <Tabs
@@ -122,6 +121,6 @@ export default function TabsLayout() {
           />
         </Tabs>
       </SafeAreaInsetsContext.Provider>
-    </View>
+    </SwipeSidebarContainer>
   );
 }

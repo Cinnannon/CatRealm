@@ -15,7 +15,7 @@ import { HeadphoneOff, Hash, Menu, MessageSquareText, MicOff, Monitor, Search, S
 import axios from 'axios';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/theme';
-import { Text, IconBtn, Avatar, BotBadge, MobileComposer, Pressable, ConnectedChannelPulse, useConnectedChannelIds, TranslatableMarkdownText, MessageActionSheet, Sheet, ChannelIcon, ServerRulesView, ServerListPanel, DrawerLeftRail, DrawerHubFooter } from '@/components';
+import { Text, IconBtn, Avatar, BotBadge, MobileComposer, Pressable, ConnectedChannelPulse, useConnectedChannelIds, TranslatableMarkdownText, MessageActionSheet, Sheet, ChannelIcon, ServerRulesView, ServerListPanel, DrawerLeftRail, DrawerHubFooter, SwipeableMessageRow, SwipeSidebarContainer } from '@/components';
 import { VoiceChannelContent } from '@/components/VoiceChannelContent';
 import { useServerStore } from '@/stores/serverStore';
 import { useMessageStore } from '@/stores/messageStore';
@@ -867,21 +867,26 @@ export default function ChannelScreen() {
     ({ item, index }: { item: Message; index: number }) => {
       const prev = displayMessages[index + 1] ?? null;
       return (
-        <MessageRow
-          message={item}
-          prevMessage={prev}
-          selfUserId={selfUserId}
-          avatarBaseUrl={channelServerUrl}
-          serverUrl={channelServerUrl}
-          expressionLookup={expressionLookup}
-          isPinned={pinnedMessageIds.has(item.id)}
-          onAvatarPress={handleAvatarPress}
-          onMessageLongPress={handleMessageLongPress}
-          onToggleReaction={canReact ? handleToggleReaction : undefined}
-        />
+        <SwipeableMessageRow
+          onReply={() => setReplyToMessage(item)}
+          onSwipeLeft={() => setChannelsSheetOpen(true)}
+        >
+          <MessageRow
+            message={item}
+            prevMessage={prev}
+            selfUserId={selfUserId}
+            avatarBaseUrl={channelServerUrl}
+            serverUrl={channelServerUrl}
+            expressionLookup={expressionLookup}
+            isPinned={pinnedMessageIds.has(item.id)}
+            onAvatarPress={handleAvatarPress}
+            onMessageLongPress={handleMessageLongPress}
+            onToggleReaction={canReact ? handleToggleReaction : undefined}
+          />
+        </SwipeableMessageRow>
       );
     },
-    [displayMessages, selfUserId, channelServerUrl, expressionLookup, pinnedMessageIds, handleAvatarPress, handleMessageLongPress, handleToggleReaction, canReact],
+    [displayMessages, selfUserId, channelServerUrl, expressionLookup, pinnedMessageIds, handleAvatarPress, handleMessageLongPress, handleToggleReaction, canReact, setChannelsSheetOpen],
   );
 
   const orderedChannels = useMemo(() => [...channels].sort((a, b) => a.position - b.position), [channels]);
@@ -1386,6 +1391,7 @@ export default function ChannelScreen() {
             ) : (
               <>
             {/* Message list (inverted so newest is at bottom) */}
+            <SwipeSidebarContainer onOpenSidebar={() => setChannelsSheetOpen(true)} disabled={isTablet}>
             <ServerMentionProvider serverId={serverId ?? ''} serverUrl={channelServerUrl} token={server?.token}>
             <FlatList
               ref={flatListRef}
@@ -1423,6 +1429,7 @@ export default function ChannelScreen() {
               onScrollEndDrag={() => setRgbFlowScrolling(false)}
             />
             </ServerMentionProvider>
+            </SwipeSidebarContainer>
             {/* Old messages banner */}
             {isScrollingOld && (
               <View style={[styles.oldMessagesBanner, { backgroundColor: theme.colors.bgElev1, borderTopColor: theme.colors.lineSoft }]}>

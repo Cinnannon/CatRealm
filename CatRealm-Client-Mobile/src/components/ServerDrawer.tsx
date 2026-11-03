@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Alert, Animated, ActivityIndicator, Pressable as RNPressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useMemo, useState } from 'react';
+import { Alert, Animated, ActivityIndicator, PanResponder, Pressable as RNPressable, ScrollView, StyleSheet, View } from 'react-native';
 import { usePathname, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Link2, ShieldAlert, SquarePlus, X } from 'lucide-react-native';
@@ -40,6 +40,20 @@ export function ServerDrawer() {
   const drawerWidth = isTablet ? Math.min(440, Math.max(360, Math.floor(viewportWidth * 0.38))) : DRAWER_WIDTH;
 
   const { slideAnim, fadeAnim, mounted } = useDrawerTransition(open, drawerWidth, () => finishDrawerClose('servers'), closeRequested);
+  const closePanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponder: (_evt, g) =>
+          g.dx < -14 && Math.abs(g.dx) > Math.abs(g.dy) * 1.4,
+        onPanResponderRelease: (_evt, g) => {
+          if (g.dx < -46 || (g.dx < -24 && g.vx < -0.45)) {
+            setOpen(false);
+          }
+        },
+      }),
+    [setOpen],
+  );
 
   const inServerChannelOnTablet = isTablet && pathname.startsWith('/server/');
   if (inServerChannelOnTablet || !mounted || replaced) return null;
@@ -70,6 +84,7 @@ export function ServerDrawer() {
 
       {/* Sliding drawer */}
       <Animated.View
+        {...closePanResponder.panHandlers}
         style={[
           styles.drawer,
           {

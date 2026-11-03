@@ -13,7 +13,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ArrowLeft, Bell, BellOff, Check, CornerUpLeft, EllipsisVertical, Lock, LockOpen, Pin, Search, ShieldAlert, Phone, X } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/theme';
-import { Text, IconBtn, Avatar, MobileComposer, Pressable, MarkdownText, TranslatableMarkdownText, MessageActionSheet, Sheet, DMSearchSheet } from '@/components';
+import { Text, IconBtn, Avatar, MobileComposer, Pressable, MarkdownText, TranslatableMarkdownText, MessageActionSheet, Sheet, DMSearchSheet, SwipeableMessageRow, SwipeSidebarContainer } from '@/components';
 import { AUTH_BASE } from '@/lib/api';
 import { getSocket } from '@/lib/socket';
 import { useDMStore, type DMPinnedEntry } from '@/stores/dmStore';
@@ -611,22 +611,27 @@ export default function DMScreen() {
     ({ item, index }: { item: DMMessage; index: number }) => {
       const prev = displayMessages[index + 1] ?? null;
       return (
-        <DMMessageRow
-          message={item}
-          prevMessage={prev}
-          selfUserId={selfUser?.id}
-          selfUsername={selfUser?.displayName ?? selfUser?.username}
-          selfAvatar={selfUser?.avatar}
-          conversation={conversation}
-          expressionLookup={expressionLookup}
-          serverUrl={dmMediaUrl}
-          imageScope={dmImageScope}
-          isHighlighted={highlightedMessageId === item.id}
-          onMessageLongPress={handleMessageLongPress}
-          onOpenProfile={openProfile}
-          onJumpToReply={handleJumpToReply}
-          onToggleReaction={handleToggleReaction}
-        />
+        <SwipeableMessageRow
+          disabled={item.messageType === 'system'}
+          onReply={() => setReplyToMessage(item)}
+        >
+          <DMMessageRow
+            message={item}
+            prevMessage={prev}
+            selfUserId={selfUser?.id}
+            selfUsername={selfUser?.displayName ?? selfUser?.username}
+            selfAvatar={selfUser?.avatar}
+            conversation={conversation}
+            expressionLookup={expressionLookup}
+            serverUrl={dmMediaUrl}
+            imageScope={dmImageScope}
+            isHighlighted={highlightedMessageId === item.id}
+            onMessageLongPress={handleMessageLongPress}
+            onOpenProfile={openProfile}
+            onJumpToReply={handleJumpToReply}
+            onToggleReaction={handleToggleReaction}
+          />
+        </SwipeableMessageRow>
       );
     },
     // displayMessages changes when messages arrive (expected). All other deps are stable.
@@ -975,7 +980,7 @@ export default function DMScreen() {
         </TouchableOpacity>
       </Modal>
 
-      <View style={{ flex: 1, overflow: 'hidden' }}>
+      <SwipeSidebarContainer style={{ overflow: 'hidden' }}>
         <View style={{ flex: 1 }}>
           <FlatList
             ref={flatListRef}
@@ -1070,7 +1075,7 @@ export default function DMScreen() {
             voiceMessages
           />
         </View>
-      </View>
+      </SwipeSidebarContainer>
 
       <MessageActionSheet
         open={Boolean(activeMessage)}
