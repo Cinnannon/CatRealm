@@ -15,7 +15,7 @@ import { HeadphoneOff, Hash, Menu, MessageSquareText, MicOff, Monitor, Search, S
 import axios from 'axios';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/theme';
-import { Text, IconBtn, Avatar, BotBadge, MobileComposer, Pressable, ConnectedChannelPulse, useConnectedChannelIds, TranslatableMarkdownText, MessageActionSheet, Sheet, ChannelIcon, ServerRulesView, ServerListPanel, DrawerHubFooter } from '@/components';
+import { Text, IconBtn, Avatar, BotBadge, MobileComposer, Pressable, ConnectedChannelPulse, useConnectedChannelIds, TranslatableMarkdownText, MessageActionSheet, Sheet, ChannelIcon, ServerRulesView, ServerListPanel, DrawerLeftRail, DrawerHubFooter } from '@/components';
 import { VoiceChannelContent } from '@/components/VoiceChannelContent';
 import { useServerStore } from '@/stores/serverStore';
 import { useMessageStore } from '@/stores/messageStore';
@@ -1139,7 +1139,9 @@ export default function ChannelScreen() {
             },
           ]}
         >
-          <View style={styles.tabletPaneStack}>
+          <View style={{ flex: 1, flexDirection: 'row', minHeight: 0 }}>
+            <DrawerLeftRail onClose={() => setServerDrawerOpen(false)} navigateOnSelect embedded />
+            <View style={styles.tabletPaneStack}>
             <Animated.View style={[styles.tabletPaneLayer, channelsPaneStyle]} pointerEvents={serverDrawerOpen ? 'none' : 'auto'}>
               <Pressable
                 haptic
@@ -1295,8 +1297,9 @@ export default function ChannelScreen() {
               {/* Same list as the phone drawer: folders, invites, realm re-approval, Add/Discover. */}
               <ServerListPanel onOpenServer={handleTabletServerPress} onLeave={() => setServerDrawerOpen(false)} />
             </Animated.View>
+            </View>
           </View>
-          <DrawerHubFooter onClose={() => setServerDrawerOpen(false)} showHubShortcuts />
+          <DrawerHubFooter onClose={() => setServerDrawerOpen(false)} />
         </View>
       )}
       <KeyboardAvoidingView
@@ -1921,18 +1924,20 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   tabletLeftPane: {
-    width: 280,
+    width: 346,
     borderRightWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 12,
+    paddingHorizontal: 0,
     paddingTop: 0,
     overflow: 'hidden',
   },
   tabletPaneStack: {
     flex: 1,
     position: 'relative',
+    minWidth: 0,
   },
   tabletPaneLayer: {
     ...StyleSheet.absoluteFill,
+    paddingHorizontal: 12,
   },
   tabletRightPane: {
     width: 280,

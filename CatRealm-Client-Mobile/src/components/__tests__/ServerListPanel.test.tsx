@@ -9,7 +9,7 @@ const mockFetch = jest.fn();
 type MockServer = { id: string; name: string; membersOnline: number; realmTrust?: { state: string } };
 let mockServers: MockServer[] = [];
 
-jest.mock('expo-router', () => ({ useRouter: () => ({ push: mockPush, replace: jest.fn() }) }));
+jest.mock('expo-router', () => ({ usePathname: () => '/home', useRouter: () => ({ push: mockPush, replace: jest.fn() }) }));
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }) }));
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('@/theme', () => ({ useTheme: () => ({ colors: {}, spacing: {}, radius: {} }) }));
@@ -35,7 +35,7 @@ jest.mock('../DiscoverButton', () => ({
     require('react').createElement(require('react-native').Pressable, { accessibilityLabel: 'Discover', onPress }),
 }));
 jest.mock('../CreateInviteModal', () => ({ CreateInviteModal: () => require('react').createElement(require('react-native').View, { testID: 'invite-modal' }) }));
-jest.mock('../BottomDock', () => ({ DrawerHubFooter: () => null }));
+jest.mock('../BottomDock', () => ({ DrawerLeftRail: () => null, DrawerHubFooter: () => null }));
 // Stand-in for the folder-aware list: one row per server, using the panel's renderers.
 jest.mock('../ServerListSection', () => ({
   ServerListSection: ({ onServerPress, renderSubtitle, renderTrailing }: {

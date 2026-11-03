@@ -11,6 +11,7 @@ import { ServerIcon } from '@/components/ServerIcon';
 import { Text } from '@/components/Text';
 import { TourAnchor } from '@/components/TourAnchor';
 import { useAuthStore } from '@/stores/authStore';
+import { useChannelStore } from '@/stores/channelStore';
 import { useServerStore, type MobileServer } from '@/stores/serverStore';
 import { useUIStore } from '@/stores/uiStore';
 import { useDMStore } from '@/stores/dmStore';
@@ -63,8 +64,9 @@ export function TopHubBar() {
   const router = useRouter();
   const pathname = usePathname();
   const selfUser = useAuthStore((s) => s.user);
+  const servers = useServerStore((s) => s.servers);
   const activeServerId = useServerStore((s) => s.activeServerId);
-  const serversCount = useServerStore((s) => s.servers.length);
+  const setActiveServer = useServerStore((s) => s.setActiveServer);
   const setChannelsSheetOpen = useUIStore((s) => s.setChannelsSheetOpen);
   const setServerDrawerOpen = useUIStore((s) => s.setServerDrawerOpen);
   const profileEditMode = useUIStore((s) => s.profileEditMode);
@@ -75,7 +77,10 @@ export function TopHubBar() {
   const active = activeHubTab(pathname);
 
   const openLeftDrawer = () => {
-    if (activeServerId && serversCount > 0) {
+    if (servers.length > 0) {
+      if (!activeServerId) {
+        void setActiveServer(servers[0].id);
+      }
       setChannelsSheetOpen(true);
     } else {
       setServerDrawerOpen(true);
@@ -272,7 +277,15 @@ export function TopHubBar() {
  * Lets the user jump to DMs (`Chats`), Friends/Notes (`Home`), switch servers,
  * or open the full server folder manager without any bottom dock.
  */
-export function DrawerLeftRail({ onClose }: { onClose: () => void }) {
+export function DrawerLeftRail({
+  onClose,
+  navigateOnSelect = false,
+  embedded = false,
+}: {
+  onClose: () => void;
+  navigateOnSelect?: boolean;
+  embedded?: boolean;
+}) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
@@ -288,9 +301,10 @@ export function DrawerLeftRail({ onClose }: { onClose: () => void }) {
   const badges = useNavBadges();
 
   const handleSelectServer = async (server: MobileServer) => {
+    const wasAlreadyActive = activeServerId === server.id;
     void setActiveServer(server.id);
-    const existing = useServerStore.getState().channels[server.id] ?? [];
-    if (existing.length === 0) {
+    let srvChannels = useServerStore.getState().channels[server.id] ?? [];
+    if (srvChannels.length === 0) {
       try {
         const base = server.url.replace(/\/$/, '');
         const headers: Record<string, string> = { 'X-CatRealm-Client': 'mobile' };
@@ -299,10 +313,30 @@ export function DrawerLeftRail({ onClose }: { onClose: () => void }) {
           axios.get<Channel[]>(`${base}/api/channels`, { headers, timeout: 10000 }),
           axios.get<Category[]>(`${base}/api/categories`, { headers, timeout: 10000 }),
         ]);
-        setChannels(server.id, channelsRes.data ?? []);
+        srvChannels = channelsRes.data ?? [];
+        setChannels(server.id, srvChannels);
         setCategories(server.id, categoriesRes.data ?? []);
       } catch {
         // Channel fetch error is handled by the main server view
+      }
+    }
+
+    if (navigateOnSelect || wasAlreadyActive) {
+      const rememberedChannelId = useChannelStore.getState().lastChannelByServer[server.id] ?? null;
+      const firstChannelId =
+        srvChannels
+          .slice()
+          .sort((a, b) => a.position - b.position)
+          .find((c) => c.type !== 'voice')?.id ??
+        srvChannels[0]?.id ??
+        null;
+      const targetChannelId = rememberedChannelId || firstChannelId;
+      if (targetChannelId) {
+        onClose();
+        router.replace({
+          pathname: '/server/[serverId]/channel/[channelId]',
+          params: { serverId: server.id, channelId: targetChannelId },
+        });
       }
     }
   };
@@ -314,7 +348,7 @@ export function DrawerLeftRail({ onClose }: { onClose: () => void }) {
         {
           backgroundColor: theme.colors.bgDeepest,
           borderRightColor: theme.colors.lineSoft,
-          paddingTop: Math.max(insets.top + 8, 14),
+          paddingTop: embedded ? 10 : Math.max(insets.top + 8, 14),
         },
       ]}
     >
