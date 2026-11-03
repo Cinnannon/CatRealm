@@ -1,7 +1,7 @@
 /**
  * ChannelsDrawer — left-side sliding drawer that mirrors the desktop sidebar.
- * Shows server banner + name header, then categories + channels below.
- * Replaces the old bottom sheet.
+ * Includes the Unified Left Rail (Chats, Home, Server icons, All Servers, Add Server),
+ * Server banner + categories + channels, and the bottom You/Notifications footer.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -39,9 +39,10 @@ import { DOCK_HEIGHT, dockBottomInset } from '@/lib/dockLayout';
 import { debugLog, debugTap } from '@/lib/debugLog';
 import { VoiceChannelContent } from './VoiceChannelContent';
 import { useCachedUri, realmScope } from '@/lib/imageCache';
+import { DrawerLeftRail, DrawerHubFooter } from './BottomDock';
 
-const DRAWER_WIDTH = 320;
-const HEADER_HEIGHT = 140;
+const DRAWER_WIDTH = 356;
+const HEADER_HEIGHT = 126;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -177,7 +178,7 @@ export function ChannelsSheet() {
     if (open) Keyboard.dismiss();
   }, [open]);
 
-  const drawerWidth = isTablet ? Math.min(420, Math.max(340, Math.floor(viewportWidth * 0.34))) : DRAWER_WIDTH;
+  const drawerWidth = isTablet ? Math.min(440, Math.max(360, Math.floor(viewportWidth * 0.38))) : DRAWER_WIDTH;
   const listRef = useRef<FlatList<ListItem>>(null);
   const restoredScrollRef = useRef(false);
 
@@ -407,53 +408,63 @@ export function ChannelsSheet() {
           },
         ]}
       >
-        {/* Server header with banner */}
-        <View style={[styles.header, { borderBottomColor: theme.colors.line }]}>
-          {cachedBannerUrl && (
-            <Image
-              source={{ uri: cachedBannerUrl }}
-              style={StyleSheet.absoluteFill}
-              resizeMode="cover"
+        <View style={{ flex: 1, flexDirection: 'row', minHeight: 0 }}>
+          {/* Unified Left Rail (Chats, Home, Servers, Add Server) */}
+          <DrawerLeftRail onClose={() => setOpen(false)} />
+
+          {/* Right column: Server header + Channel list */}
+          <View style={{ flex: 1, minWidth: 0 }}>
+            {/* Server header with banner */}
+            <View style={[styles.header, { borderBottomColor: theme.colors.line }]}>
+              {cachedBannerUrl && (
+                <Image
+                  source={{ uri: cachedBannerUrl }}
+                  style={StyleSheet.absoluteFill}
+                  resizeMode="cover"
+                />
+              )}
+              {cachedBannerUrl && <View style={styles.headerScrim} />}
+              <View style={styles.headerContent}>
+                <Text
+                  variant="subtitle"
+                  numberOfLines={1}
+                  style={[styles.serverName, cachedBannerUrl ? { color: '#fff' } : { color: theme.colors.text }]}
+                >
+                  {activeServer?.name ?? t('servers.defaultServerName')}
+                </Text>
+              </View>
+            </View>
+
+            {/* Channel list */}
+            <FlatList
+              ref={listRef}
+              data={items}
+              onScroll={(event) => scrollOffsetByServer.set(scrollKey, event.nativeEvent.contentOffset.y)}
+              scrollEventThrottle={32}
+              onContentSizeChange={() => {
+                // Restore once per opening, as soon as the rows exist to scroll through.
+                if (restoredScrollRef.current) return;
+                restoredScrollRef.current = true;
+                const offset = scrollOffsetByServer.get(scrollKey) ?? 0;
+                if (offset > 0) listRef.current?.scrollToOffset({ offset, animated: false });
+              }}
+              keyExtractor={keyExtractor}
+              renderItem={renderItem}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={[styles.list, { paddingBottom: 24 + DOCK_HEIGHT + dockBottomInset(insets.bottom) }]}
+              showsVerticalScrollIndicator={false}
+              windowSize={7}
+              ListEmptyComponent={
+                <View style={styles.empty}>
+                  <Text variant="bodySmall" color={theme.colors.text3}>{t('chat.noChannelsYet')}</Text>
+                </View>
+              }
             />
-          )}
-          {cachedBannerUrl && <View style={styles.headerScrim} />}
-          <View style={styles.headerContent}>
-            <Text
-              variant="subtitle"
-              numberOfLines={1}
-              style={[styles.serverName, cachedBannerUrl ? { color: '#fff' } : { color: theme.colors.text }]}
-            >
-              {activeServer?.name ?? t('servers.defaultServerName')}
-            </Text>
           </View>
         </View>
 
-        {/* Channel list */}
-        <FlatList
-          ref={listRef}
-          data={items}
-          onScroll={(event) => scrollOffsetByServer.set(scrollKey, event.nativeEvent.contentOffset.y)}
-          scrollEventThrottle={32}
-          onContentSizeChange={() => {
-            // Restore once per opening, as soon as the rows exist to scroll through.
-            if (restoredScrollRef.current) return;
-            restoredScrollRef.current = true;
-            const offset = scrollOffsetByServer.get(scrollKey) ?? 0;
-            if (offset > 0) listRef.current?.scrollToOffset({ offset, animated: false });
-          }}
-          keyExtractor={keyExtractor}
-          renderItem={renderItem}
-          keyboardShouldPersistTaps="handled"
-          // The bottom dock overlays the drawer; keep the last channel scrollable above it.
-          contentContainerStyle={[styles.list, { paddingBottom: 32 + DOCK_HEIGHT + dockBottomInset(insets.bottom) }]}
-          showsVerticalScrollIndicator={false}
-          windowSize={7}
-          ListEmptyComponent={
-            <View style={styles.empty}>
-              <Text variant="bodySmall" color={theme.colors.text3}>{t('chat.noChannelsYet')}</Text>
-            </View>
-          }
-        />
+        {/* Bottom Footer (You / Profile & Settings + Notifications) */}
+        <DrawerHubFooter onClose={() => setOpen(false)} />
       </Animated.View>
     </View>
     </>
@@ -463,7 +474,7 @@ export function ChannelsSheet() {
 const styles = StyleSheet.create({
   drawer: {
     width: DRAWER_WIDTH,
-    maxWidth: '86%',
+    maxWidth: '92%',
     height: '100%',
     borderRightWidth: 1,
     shadowColor: '#000',

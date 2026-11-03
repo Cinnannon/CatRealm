@@ -11,11 +11,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useComposerKeyboardInset } from '@/hooks/useComposerKeyboardInset';
 import { useFocusEffect } from "expo-router/react-navigation";
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { HeadphoneOff, Hash, MessageSquareText, MicOff, Monitor, Search, Smartphone, Users, X, CornerUpLeft, CornerUpRight, Pin } from 'lucide-react-native';
+import { HeadphoneOff, Hash, Menu, MessageSquareText, MicOff, Monitor, Search, Smartphone, Users, X, CornerUpLeft, CornerUpRight, Pin, ChevronDown } from 'lucide-react-native';
 import axios from 'axios';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/theme';
-import { Text, IconBtn, Avatar, BotBadge, MobileComposer, Pressable, ConnectedChannelPulse, useConnectedChannelIds, TranslatableMarkdownText, MessageActionSheet, Sheet, ChannelIcon, ServerRulesView, ServerListPanel } from '@/components';
+import { Text, IconBtn, Avatar, BotBadge, MobileComposer, Pressable, ConnectedChannelPulse, useConnectedChannelIds, TranslatableMarkdownText, MessageActionSheet, Sheet, ChannelIcon, ServerRulesView, ServerListPanel, DrawerHubFooter } from '@/components';
 import { VoiceChannelContent } from '@/components/VoiceChannelContent';
 import { useServerStore } from '@/stores/serverStore';
 import { useMessageStore } from '@/stores/messageStore';
@@ -1076,6 +1076,21 @@ export default function ChannelScreen() {
             onPress={() => setChannelsSheetOpen(true)}
             style={styles.channelTitle}
           >
+            <View
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: 9,
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: theme.colors.bgElev2,
+                borderWidth: StyleSheet.hairlineWidth,
+                borderColor: theme.colors.lineSoft,
+                marginRight: 2,
+              }}
+            >
+              <Menu size={17} color={theme.colors.accentText} />
+            </View>
             <Hash size={18} color={theme.colors.text3} />
             <Text variant="subtitle" style={{ flex: 1 }} numberOfLines={1}>
               {channel?.name ?? channelId}
@@ -1126,7 +1141,9 @@ export default function ChannelScreen() {
         >
           <View style={styles.tabletPaneStack}>
             <Animated.View style={[styles.tabletPaneLayer, channelsPaneStyle]} pointerEvents={serverDrawerOpen ? 'none' : 'auto'}>
-              <View
+              <Pressable
+                haptic
+                onPress={() => setServerDrawerOpen(true)}
                 style={[
                   styles.tabletServerHeader,
                   { borderBottomColor: theme.colors.lineSoft, backgroundColor: theme.colors.bgElev1 },
@@ -1136,10 +1153,13 @@ export default function ChannelScreen() {
                   <Image source={{ uri: serverBannerUrl }} style={styles.tabletServerBanner} resizeMode="cover" />
                 ) : null}
                 <View style={styles.tabletServerBannerScrim} />
-                <Text variant="subtitle" style={styles.tabletServerTitle} numberOfLines={1}>
-                  {server?.name ?? t('servers.defaultServerName')}
-                </Text>
-              </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', zIndex: 1 }}>
+                  <Text variant="subtitle" style={[styles.tabletServerTitle, { flex: 1 }]} numberOfLines={1}>
+                    {server?.name ?? t('servers.defaultServerName')}
+                  </Text>
+                  <ChevronDown size={16} color="#ffffff" />
+                </View>
+              </Pressable>
               <Text variant="subtitle" style={styles.tabletPaneTitle}>{t('chat.channelsTab')}</Text>
               <FlatList
                 data={groupedChannels}
@@ -1268,11 +1288,15 @@ export default function ChannelScreen() {
               />
             </Animated.View>
             <Animated.View style={[styles.tabletPaneLayer, serversPaneStyle]} pointerEvents={serverDrawerOpen ? 'auto' : 'none'}>
-              <Text variant="subtitle" style={styles.tabletPaneTitle}>{t('chat.serversTab')}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingRight: 8 }}>
+                <Text variant="subtitle" style={styles.tabletPaneTitle}>{t('chat.serversTab')}</Text>
+                <IconBtn icon={X} onPress={() => setServerDrawerOpen(false)} accessibilityLabel={t('call.closeServers')} />
+              </View>
               {/* Same list as the phone drawer: folders, invites, realm re-approval, Add/Discover. */}
               <ServerListPanel onOpenServer={handleTabletServerPress} onLeave={() => setServerDrawerOpen(false)} />
             </Animated.View>
           </View>
+          <DrawerHubFooter onClose={() => setServerDrawerOpen(false)} showHubShortcuts />
         </View>
       )}
       <KeyboardAvoidingView

@@ -18,8 +18,9 @@ import { useUIStore } from '@/stores/uiStore';
 import { useDrawerTransition } from '@/hooks/useDrawerTransition';
 import { useDeviceLayout } from '@/hooks/useDeviceLayout';
 import { DOCK_HEIGHT, dockBottomInset } from '@/lib/dockLayout';
+import { DrawerHubFooter } from './BottomDock';
 
-const DRAWER_WIDTH = 300;
+const DRAWER_WIDTH = 320;
 
 export function ServerDrawer() {
   const theme = useTheme();
@@ -39,7 +40,7 @@ export function ServerDrawer() {
 
   const { slideAnim, fadeAnim, mounted } = useDrawerTransition(open, drawerWidth, () => finishDrawerClose('servers'), closeRequested);
 
-  if (isTablet || !mounted || replaced) return null;
+  if (!mounted || replaced) return null;
 
   const openServer = (id: string) => {
     setActiveServer(id);
@@ -92,6 +93,8 @@ export function ServerDrawer() {
           onOpenServer={(server) => openServer(server.id)}
           onLeave={() => setOpen(false)}
         />
+
+        <DrawerHubFooter onClose={() => setOpen(false)} showHubShortcuts />
       </Animated.View>
 
     </View>

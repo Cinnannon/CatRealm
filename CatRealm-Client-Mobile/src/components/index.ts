@@ -5,7 +5,7 @@ export { ImagePlaceholder } from './ImagePlaceholder';
 export { ConnectedChannelPulse, useConnectedChannelIds } from './ConnectedChannelPulse';
 export { Text } from './Text';
 export type { TextVariant } from './Text';
-export { BottomDock } from './BottomDock';
+export { BottomDock, TopHubBar, DrawerLeftRail, DrawerHubFooter } from './BottomDock';
 export { Avatar } from './Avatar';
 export { BotBadge } from './BotBadge';
 export { ServerIcon } from './ServerIcon';
