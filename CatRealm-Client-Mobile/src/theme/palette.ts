@@ -107,6 +107,7 @@ export const builtInPalettes = {
     lineSoft: '#1A1A1A',
   },
 } satisfies Record<string, Palette>;
+export type BuiltInThemeId = keyof typeof builtInPalettes;
 export type PaletteKey = keyof Palette;
 
 /** Status -> dot color (matches User['status'] from /types). */

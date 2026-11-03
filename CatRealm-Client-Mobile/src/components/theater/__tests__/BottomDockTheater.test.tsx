@@ -21,6 +21,7 @@ jest.mock('lucide-react-native', () => ({
   Home: 'Icon',
   Menu: 'Icon',
   MessageCircle: 'Icon',
+  Palette: 'Icon',
   Plus: 'Icon',
   Settings: 'Icon',
 }));

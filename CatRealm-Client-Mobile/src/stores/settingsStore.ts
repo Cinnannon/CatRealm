@@ -9,6 +9,7 @@ export const EMOTE_SIZE_OPTIONS = [24, 32, 48, 64, 96, 128, 256, 512] as const;
 export type EmoteSizePx = (typeof EMOTE_SIZE_OPTIONS)[number];
 export const BUILT_IN_THEME_IDS = ['retro-discord', 'dark-cat', 'angel-cat', 'midnight-cat'] as const;
 export type BuiltInThemeId = (typeof BUILT_IN_THEME_IDS)[number];
+export type ThemeId = BuiltInThemeId | (string & {});
 export { LANGUAGE_OPTIONS };
 export type { AppLanguage };
 export type ScreenShareViewerQuality = 'auto' | 'high' | 'medium' | 'low';
@@ -86,7 +87,7 @@ type PersistedSettings = {
 
 interface SettingsState extends Record<SoundSettingKey, boolean> {
   emoteSizePx: EmoteSizePx;
-  theme: BuiltInThemeId;
+  theme: ThemeId;
   language: AppLanguage;
   playGifAvatars: boolean;
   disableEmbedAutoplay: boolean;
@@ -102,7 +103,7 @@ interface SettingsState extends Record<SoundSettingKey, boolean> {
   hydrated: boolean;
   hydrate: () => Promise<void>;
   setEmoteSizePx: (value: EmoteSizePx) => void;
-  setTheme: (value: BuiltInThemeId) => void;
+  setTheme: (value: ThemeId) => void;
   setLanguage: (value: AppLanguage) => void;
   setPlayGifAvatars: (value: boolean) => void;
   setDisableEmbedAutoplay: (value: boolean) => void;
@@ -123,10 +124,11 @@ function coerceEmoteSize(value: unknown): EmoteSizePx {
     : DEFAULT_EMOTE_SIZE;
 }
 
-function coerceTheme(value: unknown): BuiltInThemeId {
-  return BUILT_IN_THEME_IDS.includes(value as BuiltInThemeId)
-    ? (value as BuiltInThemeId)
-    : DEFAULT_THEME;
+function coerceTheme(value: unknown): ThemeId {
+  if (typeof value === 'string' && value.trim().length > 0) {
+    return value.trim();
+  }
+  return DEFAULT_THEME;
 }
 
 async function persistSettings(value: PersistedSettings) {

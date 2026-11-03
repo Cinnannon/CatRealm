@@ -1,6 +1,6 @@
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { usePathname, useRouter } from 'expo-router';
-import { Bell, Cat, Folder, Home, Menu, MessageCircle, Plus, Settings } from 'lucide-react-native';
+import { Bell, Cat, Folder, Home, Menu, MessageCircle, Palette, Plus, Settings } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/theme';
@@ -123,6 +123,22 @@ export function TopHubBar() {
         </View>
 
         <View style={styles.topRightActions}>
+          <Pressable
+            haptic
+            accessibilityRole="button"
+            accessibilityLabel={t('settings.sectionTheme', { defaultValue: 'Themes' })}
+            onPress={() => router.push({ pathname: '/(app)/settings', params: { section: 'appearance' } })}
+            style={[
+              styles.notifBtn,
+              {
+                backgroundColor: theme.colors.bgElev1,
+                borderColor: theme.colors.lineSoft,
+              },
+            ]}
+          >
+            <Palette size={16} color={theme.colors.accentText} />
+          </Pressable>
+
           <TourAnchor name="dock-notifications">
             <Pressable
               haptic
@@ -601,8 +617,24 @@ export function DrawerHubFooter({
           <Pressable
             haptic
             accessibilityRole="button"
-            accessibilityLabel={t('tabs.you')}
-            onPress={() => go('/(app)/(tabs)/me')}
+            accessibilityLabel={t('settings.sectionTheme', { defaultValue: 'Themes' })}
+            onPress={() => {
+              onClose?.();
+              router.push({ pathname: '/(app)/settings', params: { section: 'appearance' } });
+            }}
+            style={[styles.footerIconBtn, { backgroundColor: theme.colors.bgElev2 }]}
+          >
+            <Palette size={16} color={theme.colors.accentText} />
+          </Pressable>
+
+          <Pressable
+            haptic
+            accessibilityRole="button"
+            accessibilityLabel={t('settings.title', { defaultValue: 'Settings' })}
+            onPress={() => {
+              onClose?.();
+              router.push('/(app)/settings');
+            }}
             style={[styles.footerIconBtn, { backgroundColor: theme.colors.bgElev2 }]}
           >
             <Settings size={16} color={theme.colors.text2} />

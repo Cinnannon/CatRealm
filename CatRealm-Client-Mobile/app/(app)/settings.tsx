@@ -35,6 +35,7 @@ import { TranslationPacksList } from '@/components/settings/TranslationPacksList
 import { ServerIcon } from '@/components/ServerIcon';
 import { DeleteAccountConfirmModal } from '@/components/settings/DeleteAccountConfirmModal';
 import { useAuthStore } from '@/stores/authStore';
+import { CUSTOM_THEME_TEMPLATE, useCustomThemeStore, validateAndParseCustomTheme } from '@/stores/customThemeStore';
 import {
   EMOTE_SIZE_OPTIONS,
   SOUND_SETTING_DEFAULTS,
@@ -902,12 +903,60 @@ function AppearanceSettingsSection() {
   const { t } = useTranslation();
   const selectedTheme = useSettingsStore((s) => s.theme);
   const setTheme = useSettingsStore((s) => s.setTheme);
+  const customThemes = useCustomThemeStore((s) => s.themes);
+  const addCustomTheme = useCustomThemeStore((s) => s.addTheme);
+  const removeCustomTheme = useCustomThemeStore((s) => s.removeTheme);
+  const [importError, setImportError] = useState<string | null>(null);
   const playGifAvatars = useSettingsStore((s) => s.playGifAvatars);
   const setPlayGifAvatars = useSettingsStore((s) => s.setPlayGifAvatars);
   const disableEmbedAutoplay = useSettingsStore((s) => s.disableEmbedAutoplay);
   const setDisableEmbedAutoplay = useSettingsStore((s) => s.setDisableEmbedAutoplay);
   const showAvatarBackground = useSettingsStore((s) => s.showAvatarBackground);
   const setShowAvatarBackground = useSettingsStore((s) => s.setShowAvatarBackground);
+
+  const handleDownloadThemeTemplate = useCallback(() => {
+    const json = JSON.stringify(CUSTOM_THEME_TEMPLATE, null, 2);
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'catrealm-theme-template.json';
+      a.click();
+      URL.revokeObjectURL(url);
+      return;
+    }
+    Alert.alert('catrealm-theme-template.json', json);
+  }, []);
+
+  const handleImportCustomTheme = useCallback(async () => {
+    setImportError(null);
+    try {
+      const res = await DocumentPicker.getDocumentAsync({
+        type: ['application/json', 'text/json', '*/*'],
+        copyToCacheDirectory: true,
+      });
+      if (res.canceled || !res.assets?.[0]) return;
+      const asset = res.assets[0];
+      let rawText = '';
+      if (Platform.OS === 'web' && (asset as { file?: File }).file) {
+        rawText = await (asset as { file: File }).file.text();
+      } else {
+        const resp = await fetch(asset.uri);
+        rawText = await resp.text();
+      }
+      const parsed = validateAndParseCustomTheme(rawText);
+      if (!parsed.ok) {
+        setImportError(parsed.error);
+        return;
+      }
+      const id = addCustomTheme(parsed.theme);
+      setTheme(id);
+      setImportError(null);
+    } catch {
+      setImportError('Failed to import custom theme JSON.');
+    }
+  }, [addCustomTheme, setTheme]);
 
   return (
     <>
@@ -931,7 +980,7 @@ function AppearanceSettingsSection() {
               onPress={() => setTheme(option.id)}
               style={[
                 styles.themeRow,
-                index < THEME_OPTIONS.length - 1
+                index < THEME_OPTIONS.length - 1 || customThemes.length > 0
                   ? {
                       borderBottomWidth: StyleSheet.hairlineWidth,
                       borderBottomColor: theme.colors.lineSoft,
@@ -986,6 +1035,131 @@ function AppearanceSettingsSection() {
             </Pressable>
           );
         })}
+
+        {customThemes.map((ct, idx) => {
+          const active = selectedTheme === ct.id;
+          const swatches = [
+            ct.colors['bg-sidebar'] || '#302154',
+            ct.colors['bg-chat'] || '#3A2864',
+            ct.colors['accent'] || '#9B77FF',
+          ];
+          return (
+            <Pressable
+              key={ct.id}
+              haptic
+              onPress={() => setTheme(ct.id)}
+              style={[
+                styles.themeRow,
+                idx < customThemes.length - 1
+                  ? {
+                      borderBottomWidth: StyleSheet.hairlineWidth,
+                      borderBottomColor: theme.colors.lineSoft,
+                    }
+                  : null,
+              ]}
+            >
+              <View style={styles.themeSwatches}>
+                {swatches.map((swatch, sIdx) => (
+                  <View
+                    key={`${ct.id}-${sIdx}-${swatch}`}
+                    style={[
+                      styles.themeSwatch,
+                      {
+                        backgroundColor: swatch,
+                        borderColor: active ? theme.colors.accent : theme.colors.lineSoft,
+                      },
+                    ]}
+                  />
+                ))}
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text variant="subtitle">{ct.themeName}</Text>
+                <Text variant="bodySmall" color={theme.colors.text3}>
+                  {ct.author ? `By ${ct.author} · v${ct.version || '1.0'}` : `Custom theme · v${ct.version || '1.0'}`}
+                </Text>
+              </View>
+              <Pressable
+                haptic
+                onPress={() => {
+                  removeCustomTheme(ct.id);
+                  if (selectedTheme === ct.id) setTheme('dark-cat');
+                }}
+                style={{ padding: 6, marginRight: 4 }}
+              >
+                <Trash2 size={16} color={theme.colors.danger} />
+              </Pressable>
+              <View
+                style={[
+                  styles.radioOuter,
+                  {
+                    borderColor: active ? theme.colors.accent : theme.colors.text3,
+                  },
+                ]}
+              >
+                {active ? (
+                  <View
+                    style={[
+                      styles.radioInner,
+                      {
+                        backgroundColor: theme.colors.accent,
+                      },
+                    ]}
+                  />
+                ) : null}
+              </View>
+            </Pressable>
+          );
+        })}
+
+        <View
+          style={{
+            flexDirection: 'row',
+            flexWrap: 'wrap',
+            gap: 10,
+            padding: 14,
+            borderTopWidth: StyleSheet.hairlineWidth,
+            borderTopColor: theme.colors.lineSoft,
+          }}
+        >
+          <Pressable
+            haptic
+            onPress={handleDownloadThemeTemplate}
+            style={{
+              paddingHorizontal: 12,
+              paddingVertical: 9,
+              borderRadius: theme.radius.md,
+              borderWidth: 1,
+              borderColor: theme.colors.line,
+              backgroundColor: theme.colors.bgElev2,
+            }}
+          >
+            <Text variant="caption" color={theme.colors.text2} style={{ fontWeight: '600' }}>
+              {t('settingsContent.downloadThemeTemplate', { defaultValue: 'Download Theme Template' })}
+            </Text>
+          </Pressable>
+
+          <Pressable
+            haptic
+            onPress={() => void handleImportCustomTheme()}
+            style={{
+              paddingHorizontal: 12,
+              paddingVertical: 9,
+              borderRadius: theme.radius.md,
+              borderWidth: 1,
+              borderColor: theme.colors.accent,
+              backgroundColor: theme.colors.accentSoft,
+            }}
+          >
+            <Text variant="caption" color={theme.colors.accentText} style={{ fontWeight: '700' }}>
+              {t('settingsContent.importCustomTheme', { defaultValue: 'Import Custom Theme (.json)' })}
+            </Text>
+          </Pressable>
+        </View>
+        {importError ? (
+          <Text variant="caption" color={theme.colors.danger} style={{ paddingHorizontal: 14, paddingBottom: 12 }}>
+            {importError}
+          </Text>
+        ) : null}
       </View>
 
       <SectionHeader title={t('settings.sectionAvatarMedia')} />
