@@ -15,7 +15,7 @@ import { HeadphoneOff, Hash, Menu, MessageSquareText, MicOff, Monitor, Search, S
 import axios from 'axios';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/theme';
-import { Text, IconBtn, Avatar, BotBadge, MobileComposer, Pressable, ConnectedChannelPulse, useConnectedChannelIds, TranslatableMarkdownText, MessageActionSheet, Sheet, ChannelIcon, ServerRulesView, ForumChannelView, ServerListPanel, DrawerLeftRail, DrawerHubFooter, SwipeableMessageRow, SwipeSidebarContainer } from '@/components';
+import { Text, IconBtn, Avatar, BotBadge, MobileComposer, Pressable, ConnectedChannelPulse, useConnectedChannelIds, TranslatableMarkdownText, MessageActionSheet, MessageReactionsSheet, Sheet, ChannelIcon, ServerRulesView, ForumChannelView, ServerListPanel, DrawerLeftRail, DrawerHubFooter, SwipeableMessageRow, SwipeSidebarContainer } from '@/components';
 import { VoiceChannelContent } from '@/components/VoiceChannelContent';
 import { useServerStore } from '@/stores/serverStore';
 import { useMessageStore } from '@/stores/messageStore';
@@ -32,7 +32,7 @@ import { getOrigin, resolveEmoteFromCache, useExpressionLookup, type ExpressionL
 import { RoleNameText, setRgbFlowScrolling } from '@/lib/roleStyles';
 import { fetchIconByTitle } from '@/lib/gameLibraryIcons';
 import { useListeningArt } from '@/lib/lastfmAlbumArt';
-import type { Category, Channel, Message, OnlineUser } from '@/types';
+import type { Category, Channel, Message, OnlineUser, Reaction } from '@/types';
 import type { ComposerSendOptions } from '@/components/MobileComposer';
 import { hasChannelPermission, PERMISSIONS } from '@/utils/permissions';
 import { formatMessageTimestamp } from '@/utils/formatTime';
@@ -304,6 +304,7 @@ interface MessageRowProps {
   onAvatarPress: (userId: string) => void;
   onMessageLongPress: (message: Message, isSelf: boolean) => void;
   onToggleReaction?: (messageId: string, emoji: string) => void;
+  onOpenReactions?: (message: Message, emoji?: string) => void;
 }
 
 // Matches compact emote tokens: :server:name:, :name:, :name:ownerId:, etc.
@@ -343,6 +344,7 @@ const MessageRow = memo(function MessageRow({
   onAvatarPress,
   onMessageLongPress,
   onToggleReaction,
+  onOpenReactions,
 }: MessageRowProps) {
   const theme = useTheme();
   const { t } = useTranslation();
@@ -453,6 +455,7 @@ const MessageRow = memo(function MessageRow({
                   key={reaction.emoji}
                   disabled={!onToggleReaction}
                   onPress={() => onToggleReaction?.(message.id, reaction.emoji)}
+                  onLongPress={() => onOpenReactions?.(message, reaction.emoji)}
                   style={[
                     styles.reactionChip,
                     reacted
@@ -501,7 +504,8 @@ const MessageRow = memo(function MessageRow({
   prev.serverUrl === next.serverUrl &&
   prev.onAvatarPress === next.onAvatarPress &&
   prev.onMessageLongPress === next.onMessageLongPress &&
-  prev.onToggleReaction === next.onToggleReaction,
+  prev.onToggleReaction === next.onToggleReaction &&
+  prev.onOpenReactions === next.onOpenReactions,
 );
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
@@ -600,6 +604,7 @@ export default function ChannelScreen() {
   const typingSentAtRef = useRef(0);
   const [activeMessage, setActiveMessage] = useState<Message | null>(null);
   const [replyToMessage, setReplyToMessage] = useState<Message | null>(null);
+  const [reactionsSheetState, setReactionsSheetState] = useState<{ open: boolean; reactions: ReadonlyArray<Reaction> | null; initialEmoji: string | null }>({ open: false, reactions: null, initialEmoji: null });
   const [pinsOpen, setPinsOpen] = useState(false);
   const [threadsOpen, setThreadsOpen] = useState(false);
   const [threads, setThreads] = useState<Array<{ id: string; name: string; created_at: number }>>([]);
@@ -882,6 +887,7 @@ export default function ChannelScreen() {
             onAvatarPress={handleAvatarPress}
             onMessageLongPress={handleMessageLongPress}
             onToggleReaction={canReact ? handleToggleReaction : undefined}
+            onOpenReactions={(msg, emoji) => setReactionsSheetState({ open: true, reactions: msg.reactions ?? null, initialEmoji: emoji ?? null })}
           />
         </SwipeableMessageRow>
       );
@@ -1635,6 +1641,13 @@ export default function ChannelScreen() {
         initialEditText={activeMessage?.content ?? ''}
         translationMessageId={activeMessage?.id}
         translationText={activeMessage?.content}
+        reactions={activeMessage?.reactions}
+        onViewReactions={() => {
+          if (!activeMessage) return;
+          const current = activeMessage;
+          setActiveMessage(null);
+          setReactionsSheetState({ open: true, reactions: current.reactions ?? null, initialEmoji: null });
+        }}
         canEdit={Boolean(
           activeMessage && (
             activeMessage.user_id === selfUser?.id ||
@@ -1689,6 +1702,14 @@ export default function ChannelScreen() {
           if (!activeMessage) return;
           requestDelete(activeMessage.id, activeMessage.channel_id);
         }}
+      />
+
+      <MessageReactionsSheet
+        open={reactionsSheetState.open}
+        onClose={() => setReactionsSheetState({ open: false, reactions: null, initialEmoji: null })}
+        reactions={reactionsSheetState.reactions}
+        serverUrl={channelServerUrl}
+        initialEmoji={reactionsSheetState.initialEmoji}
       />
 
       {/* Threads sheet */}

@@ -30,7 +30,7 @@ function triggerLightHaptic() {
 
 function isAnySidebarOpen(): boolean {
   const state = useUIStore.getState();
-  return Boolean(state.channelsSheetOpen || state.serverDrawerOpen);
+  return Boolean(state.channelsSheetOpen || state.serverDrawerOpen || state.closingDrawer);
 }
 
 interface SwipeableMessageRowProps {
@@ -131,6 +131,14 @@ export function SwipeableMessageRow({
             } else {
               return;
             }
+          }
+
+          if (isAnySidebarOpen()) {
+            if (gestureModeRef.current === 'reply') {
+              translateX.setValue(0);
+              gestureModeRef.current = null;
+            }
+            return;
           }
 
           if (gestureModeRef.current === 'reply') {

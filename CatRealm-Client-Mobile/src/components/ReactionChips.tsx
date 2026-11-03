@@ -27,10 +27,12 @@ export function ReactionChips({
   reactions,
   serverUrl,
   onToggle,
+  onLongPress,
 }: {
   reactions: ReadonlyArray<{ emoji: string; count: number; reacted?: boolean }>;
   serverUrl?: string | null;
   onToggle?: (emoji: string) => void;
+  onLongPress?: (emoji: string) => void;
 }) {
   const theme = useTheme();
   if (reactions.length === 0) return null;
@@ -40,6 +42,7 @@ export function ReactionChips({
         <Pressable
           key={reaction.emoji}
           onPress={() => onToggle?.(reaction.emoji)}
+          onLongPress={() => onLongPress?.(reaction.emoji)}
           style={[
             styles.chip,
             reaction.reacted

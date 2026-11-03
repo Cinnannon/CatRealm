@@ -604,7 +604,12 @@
     "languageName_en": "inglés",
     "languageName_es": "español",
     "languageName_ru": "ruso",
-    "languageName_ja": "japonés"
+    "languageName_ja": "japonés",
+    "viewCatReactions": "Ver reacciones",
+    "catReactionsTitle": "Reacciones",
+    "reactorUnknown": "Usuario desconocido",
+    "allReactions": "Todas",
+    "noReactions": "Aún no hay reacciones"
   },
   "profile": {
     "serverProfile": "Perfil del Servidor",

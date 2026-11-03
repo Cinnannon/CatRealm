@@ -13,7 +13,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ArrowLeft, Bell, BellOff, Check, CornerUpLeft, EllipsisVertical, Lock, LockOpen, Pin, Search, ShieldAlert, Phone, X } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/theme';
-import { Text, IconBtn, Avatar, MobileComposer, Pressable, MarkdownText, TranslatableMarkdownText, MessageActionSheet, Sheet, DMSearchSheet, SwipeableMessageRow, SwipeSidebarContainer } from '@/components';
+import { Text, IconBtn, Avatar, MobileComposer, Pressable, MarkdownText, TranslatableMarkdownText, MessageActionSheet, MessageReactionsSheet, Sheet, DMSearchSheet, SwipeableMessageRow, SwipeSidebarContainer } from '@/components';
 import { AUTH_BASE } from '@/lib/api';
 import { getSocket } from '@/lib/socket';
 import { useDMStore, type DMPinnedEntry } from '@/stores/dmStore';
@@ -27,7 +27,7 @@ import { useCallStore } from '@/stores/callStore';
 import { fetchDMKeyManifest, deriveDMEncryptionState, areAllKeyHoldersBlocked, retryCurrentDeviceDMKey, type DMEncryptionState } from '@/lib/dmKeyStore';
 import { useDeviceLayout } from '@/hooks/useDeviceLayout';
 import { getLocalDeviceId } from '@/lib/deviceIdentity';
-import type { DMConversation, DMMessage } from '@/types';
+import type { DMConversation, DMMessage, Reaction } from '@/types';
 import { formatMessageTimestamp } from '@/utils/formatTime';
 import { centralScope, realmScope } from '@/lib/imageCache';
 import { DMRequestBanner } from '@/components/DMRequestBanner';
@@ -149,6 +149,7 @@ interface DMMessageRowProps {
   onOpenProfile: (userId: string) => void;
   onJumpToReply?: (previewText: string, authorLabel: string) => void;
   onToggleReaction?: (messageId: string, emoji: string) => void;
+  onOpenReactions?: (message: DMMessage, emoji?: string) => void;
 }
 
 const DMMessageRow = memo(function DMMessageRow({
@@ -166,6 +167,7 @@ const DMMessageRow = memo(function DMMessageRow({
   onOpenProfile,
   onJumpToReply,
   onToggleReaction,
+  onOpenReactions,
 }: DMMessageRowProps) {
   const theme = useTheme();
   const { t } = useTranslation();
@@ -284,6 +286,7 @@ const DMMessageRow = memo(function DMMessageRow({
                 <Pressable
                   key={reaction.emoji}
                   onPress={() => onToggleReaction?.(message.id, reaction.emoji)}
+                  onLongPress={() => onOpenReactions?.(message, reaction.emoji)}
                   style={[
                     styles.reactionChip,
                     reaction.reacted
@@ -317,7 +320,8 @@ const DMMessageRow = memo(function DMMessageRow({
   prev.onMessageLongPress === next.onMessageLongPress &&
   prev.onOpenProfile === next.onOpenProfile &&
   prev.onJumpToReply === next.onJumpToReply &&
-  prev.onToggleReaction === next.onToggleReaction,
+  prev.onToggleReaction === next.onToggleReaction &&
+  prev.onOpenReactions === next.onOpenReactions,
 );
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
@@ -337,6 +341,7 @@ export default function DMScreen() {
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [activeMessage, setActiveMessage] = useState<DMMessage | null>(null);
+  const [reactionsSheetState, setReactionsSheetState] = useState<{ open: boolean; reactions: ReadonlyArray<Reaction> | null; initialEmoji: string | null }>({ open: false, reactions: null, initialEmoji: null });
   const [replyToMessage, setReplyToMessage] = useState<DMMessage | null>(null);
   const [isScrollingOld, setIsScrollingOld] = useState(false);
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
@@ -630,6 +635,7 @@ export default function DMScreen() {
             onOpenProfile={openProfile}
             onJumpToReply={handleJumpToReply}
             onToggleReaction={handleToggleReaction}
+            onOpenReactions={(msg, emoji) => setReactionsSheetState({ open: true, reactions: msg.reactions ?? null, initialEmoji: emoji ?? null })}
           />
         </SwipeableMessageRow>
       );
@@ -1086,6 +1092,13 @@ export default function DMScreen() {
         initialEditText={activeMessage?.text ?? ''}
         translationMessageId={activeMessage?.id}
         translationText={activeMessage ? (parseDmContextText(activeMessage.text)?.bodyText ?? activeMessage.text) : null}
+        reactions={activeMessage?.reactions}
+        onViewReactions={() => {
+          if (!activeMessage) return;
+          const current = activeMessage;
+          setActiveMessage(null);
+          setReactionsSheetState({ open: true, reactions: current.reactions ?? null, initialEmoji: null });
+        }}
         canEdit={Boolean(activeMessage && activeMessage.senderId === selfUser?.id)}
         canDelete={Boolean(activeMessage && activeMessage.senderId === selfUser?.id)}
         onReply={() => {
@@ -1121,6 +1134,14 @@ export default function DMScreen() {
           if (!activeMessage) return;
           void deleteMessage(activeMessage.id);
         }}
+      />
+
+      <MessageReactionsSheet
+        open={reactionsSheetState.open}
+        onClose={() => setReactionsSheetState({ open: false, reactions: null, initialEmoji: null })}
+        reactions={reactionsSheetState.reactions}
+        serverUrl={serverUrl}
+        initialEmoji={reactionsSheetState.initialEmoji}
       />
 
       {/* Search sheet */}

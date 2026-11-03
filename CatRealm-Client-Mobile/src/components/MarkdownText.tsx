@@ -1003,30 +1003,32 @@ function ChatVideo({ url, name, serverUrl, imageScope, autoLoop = false }: { url
 
   return (
     <View style={[styles.videoWrap, { backgroundColor: '#000', borderColor: theme.colors.lineSoft }]}>
-      <VideoView
-        player={player}
-        style={styles.video}
-        contentFit="contain"
-        nativeControls={false}
-      />
-      {autoLoop ? (
-        // GIF-style loop: no controls (desktop parity). iOS fires playingChange on every
-        // loop restart, which would keep popping CatRealmVideoControls back up.
-        <Pressable style={StyleSheet.absoluteFill} onPress={() => openMediaViewer(url, name, [{ url, name, kind: 'video' }], 0)} />
-      ) : (
-        <CatRealmVideoControls
+      <View style={{ position: 'relative', width: '100%', height: 240, overflow: 'hidden' }}>
+        <VideoView
           player={player}
-          compact
-          onFullscreen={() => {
-            try {
-              player.pause();
-            } catch {
-              // Ignore pause races while opening the fullscreen viewer.
-            }
-            openMediaViewer(url, name, [{ url, name, kind: 'video' }], 0);
-          }}
+          style={StyleSheet.absoluteFill}
+          contentFit="contain"
+          nativeControls={false}
         />
-      )}
+        {autoLoop ? (
+          // GIF-style loop: no controls (desktop parity). iOS fires playingChange on every
+          // loop restart, which would keep popping CatRealmVideoControls back up.
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => openMediaViewer(url, name, [{ url, name, kind: 'video' }], 0)} />
+        ) : (
+          <CatRealmVideoControls
+            player={player}
+            compact
+            onFullscreen={() => {
+              try {
+                player.pause();
+              } catch {
+                // Ignore pause races while opening the fullscreen viewer.
+              }
+              openMediaViewer(url, name, [{ url, name, kind: 'video' }], 0);
+            }}
+          />
+        )}
+      </View>
       {name ? (
         <View style={[styles.videoMeta, { backgroundColor: theme.colors.bgElev1 }]}>
           <Text style={{ color: theme.colors.text3, fontSize: 12 }} numberOfLines={1}>{name}</Text>

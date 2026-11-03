@@ -604,7 +604,12 @@
     "languageName_en": "английский",
     "languageName_es": "испанский",
     "languageName_ru": "русский",
-    "languageName_ja": "японский"
+    "languageName_ja": "японский",
+    "viewCatReactions": "Посмотреть реакцию кошек",
+    "catReactionsTitle": "Реакция кошек",
+    "reactorUnknown": "Неизвестный пользователь",
+    "allReactions": "Все",
+    "noReactions": "Пока нет реакций"
   },
   "profile": {
     "serverProfile": "Профиль сервера",

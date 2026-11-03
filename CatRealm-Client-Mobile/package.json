@@ -1,6 +1,6 @@
 {
   "name": "catrealm-client-mobile",
-  "version": "1.9.1-mobile",
+  "version": "1.9.4-mobile",
   "private": true,
   "license": "AGPL-3.0-or-later",
   "description": "Official CatRealm mobile client (iOS + Android, Expo + React Native).",

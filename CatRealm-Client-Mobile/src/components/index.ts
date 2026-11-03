@@ -38,3 +38,5 @@ export { AuthCard, AuthScreenHeader, AuthScreenShell, AuthTabRow } from './AuthS
 export { CallOverlay } from './CallOverlay';
 export { SwipeableMessageRow, SwipeSidebarContainer } from './SwipeableMessageRow';
 export { ForumChannelView } from './ForumChannelView';
+export { ReactionChips, ReactionEmoji } from './ReactionChips';
+export { MessageReactionsSheet } from './MessageReactionsSheet';

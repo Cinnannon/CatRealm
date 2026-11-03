@@ -13,6 +13,7 @@ import { Sheet } from './Sheet';
 import { ExpressionPicker } from './ExpressionPicker';
 import { normalizeExprName, getOrigin, type ExpressionEntry, type ExpressionLookup } from '@/lib/expressionCache';
 import { filterExpressionLookup } from '@/lib/expressionPermissions';
+import type { Reaction } from '@/types';
 import { useMessageTranslationAction } from '@/lib/translation/useAutoTranslation';
 
 const USAGE_STORAGE_KEY = 'catrealm.expression-usage.v1';
@@ -46,6 +47,8 @@ interface MessageActionSheetProps {
   /** Cat Lab auto-translate: the message whose translation the sheet can show or request. */
   translationMessageId?: string | null;
   translationText?: string | null;
+  reactions?: ReadonlyArray<Reaction> | null;
+  onViewReactions?: () => void;
 }
 
 function buildExpressionToken(item: ExpressionEntry, currentOrigin: string | null): string {
@@ -114,6 +117,8 @@ export function MessageActionSheet({
   canUseExternalStickers = true,
   translationMessageId,
   translationText,
+  reactions,
+  onViewReactions,
 }: MessageActionSheetProps) {
   const theme = useTheme();
   const { t } = useTranslation();
@@ -290,6 +295,13 @@ export function MessageActionSheet({
   if (onForward) actionRows.push({ key: 'forward', label: t('chat.forward'), onPress: onForward });
   if (onMarkUnread) actionRows.push({ key: 'unread', label: t('chat.markUnread'), onPress: onMarkUnread });
   if (onPin && (isDm || canPin)) actionRows.push({ key: 'pin', label: isPinned ? t('chat.unpinMessage') : t('chat.pinMessage'), onPress: onPin });
+  if (onViewReactions && (reactions?.length ?? 0) > 0) {
+    actionRows.push({
+      key: 'view_reactions',
+      label: t('chat.viewCatReactions'),
+      onPress: onViewReactions,
+    });
+  }
   if (translationAction) actionRows.push({
     key: 'translate',
     label: translationAction.kind === 'toggle'
