@@ -150,12 +150,15 @@ function originHash(url: string): string {
 }
 
 function urlToFilename(url: string): string {
-  const base = url.split('?')[0];
-  const lastDot = base.lastIndexOf('.');
-  const ext = lastDot !== -1
-    ? base.slice(lastDot + 1).toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 6)
-    : 'img';
-  return `${djb2(url).toString(16)}.${ext || 'img'}`;
+  const base = url.split('?')[0].split('#')[0];
+  const lastSlash = base.lastIndexOf('/');
+  const segment = lastSlash !== -1 ? base.slice(lastSlash + 1) : base;
+  const lastDot = segment.lastIndexOf('.');
+  const rawExt = lastDot !== -1
+    ? segment.slice(lastDot + 1).toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 6)
+    : '';
+  const ext = IMAGE_EXTS.has(rawExt) || VIDEO_EXTS.has(rawExt) ? rawExt : 'jpg';
+  return `${djb2(url).toString(16)}.${ext}`;
 }
 
 async function ensureDir(dir: string): Promise<void> {
@@ -203,7 +206,11 @@ export async function getCachedUri(remoteUrl: string, scope: string): Promise<st
       await ensureDir(dir);
       const localPath = dir + urlToFilename(remoteUrl);
       const info = await FileSystem.getInfoAsync(localPath);
-      if (info.exists) return localPath;
+      if (info.exists) {
+        const size = 'size' in info ? (info.size as number) : 1;
+        if (size > 0) return localPath;
+        await FileSystem.deleteAsync(localPath, { idempotent: true });
+      }
 
       const result = await FileSystem.downloadAsync(remoteUrl, localPath);
       if (result.status < 200 || result.status >= 300) {
