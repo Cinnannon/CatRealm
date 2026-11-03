@@ -8,7 +8,7 @@
 const RETRY_DELAYS_MS = [2_000, 5_000, 15_000];
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { Platform, View, StyleSheet } from 'react-native';
 import * as Battery from 'expo-battery';
 import { Image as ExpoImage } from 'expo-image';
 import { ImagePlaceholder } from './ImagePlaceholder';
@@ -34,6 +34,14 @@ export interface AvatarProps {
   style?: StyleProp<ViewStyle>;
 }
 
+const useSafePowerState = () => {
+  if (Platform.OS === 'web') {
+    return { lowPowerMode: false, batteryLevel: -1, batteryState: Battery.BatteryState.UNKNOWN };
+  }
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  return Battery.usePowerState();
+};
+
 export function Avatar({
   username,
   uri,
@@ -46,7 +54,7 @@ export function Avatar({
   style,
 }: AvatarProps) {
   const theme = useTheme();
-  const { lowPowerMode, batteryLevel, batteryState } = Battery.usePowerState();
+  const { lowPowerMode, batteryLevel, batteryState } = useSafePowerState();
   const showAvatarBackground = useSettingsStore((s) => s.showAvatarBackground);
   const playGifAvatars = useSettingsStore((s) => s.playGifAvatars);
   const authAccountType = useAuthStore((s) => s.user?.accountType);

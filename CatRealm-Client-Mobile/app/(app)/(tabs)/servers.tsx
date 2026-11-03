@@ -20,7 +20,7 @@ export default function ServersTab() {
   const theme = useTheme();
   const { t } = useTranslation();
   const router = useRouter();
-  const { isTablet, width } = useDeviceLayout();
+  const { isTablet } = useDeviceLayout();
   const servers = useServerStore((s) => s.servers);
   const serverSyncStatus = useServerStore((s) => s.serverSyncStatus);
   const serverSyncMessage = useServerStore((s) => s.serverSyncMessage);
@@ -74,8 +74,11 @@ export default function ServersTab() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.bgApp }} edges={['top']}>
-      <ScrollView keyboardShouldPersistTaps="handled" style={isTablet ? { width: Math.min(400, width * 0.45) } : undefined}
-        contentContainerStyle={{ padding: theme.spacing.lg, paddingBottom: theme.spacing.xl }}>
+      <ScrollView
+        keyboardShouldPersistTaps="handled"
+        style={isTablet ? { maxWidth: 760, width: '100%', alignSelf: 'center' } : undefined}
+        contentContainerStyle={{ padding: theme.spacing.lg, paddingBottom: theme.spacing.xl }}
+      >
         <View style={styles.header}>
           <View style={{ flex: 1, gap: 6 }}>
             <Text variant="display">{t('tabs.servers')}</Text>
