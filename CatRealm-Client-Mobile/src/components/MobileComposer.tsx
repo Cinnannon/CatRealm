@@ -28,6 +28,13 @@ import { ExpressionPicker } from './ExpressionPicker';
 import { BotCommandPicker } from './BotCommandPicker';
 import { BotBadge } from './BotBadge';
 import { MentionSuggestionList } from './MentionSuggestionList';
+import { EmoteSuggestionList } from './EmoteSuggestionList';
+import {
+  activeEmoteQuery,
+  buildEmoteSuggestions,
+  replaceCompletedEmojiShortcodes,
+  type EmoteSuggestion,
+} from '@/lib/emoteSuggestions';
 import { usePresenceStore } from '@/stores/presenceStore';
 import { activeMentionQuery, buildMentionSuggestions, type MentionSuggestion } from '@/lib/mentionSuggestions';
 import { VoiceExpirySheet, VoiceRecorderBar } from './VoiceRecorderBar';
@@ -121,9 +128,10 @@ function serializeComposerText(
   lookup: ExpressionLookup | null | undefined,
   currentServerUrl: string | null | undefined,
 ): string {
-  if (!lookup) return text;
+  const withShortcodes = replaceCompletedEmojiShortcodes(text, lookup);
+  if (!lookup) return withShortcodes;
   const protectedTokens: string[] = [];
-  const protectedText = text.replace(COMPACT_EXPR_WITH_ORIGIN_OR_OWNER_RE, (match) => {
+  const protectedText = withShortcodes.replace(COMPACT_EXPR_WITH_ORIGIN_OR_OWNER_RE, (match) => {
     protectedTokens.push(match);
     return `\uF901${protectedTokens.length - 1}\uF901`;
   });
@@ -327,6 +335,55 @@ function composerHtml(placeholder: string, textColor: string, placeholderColor: 
         nodes.push(img);
         insertNodes(nodes);
       },
+      // Swap the ":query" right before the caret for a picked emoji or custom emote.
+      replaceEmote(insert, url, name, isSticker) {
+        const selection = window.getSelection();
+        if (!selection.rangeCount) return;
+        let node = selection.anchorNode;
+        let offset = selection.anchorOffset;
+        if (node === editor && offset > 0 && editor.childNodes[offset - 1] && editor.childNodes[offset - 1].nodeType === 3) {
+          node = editor.childNodes[offset - 1];
+          offset = node.textContent.length;
+        }
+        if (!node || node.nodeType !== 3 || !editor.contains(node)) return;
+        const text = (node.textContent || '').replace(/\u00a0/g, ' ');
+        const colon = text.slice(0, offset).lastIndexOf(':');
+        if (colon === -1) return;
+        if (url) {
+          const beforeText = text.slice(0, colon);
+          const afterText = text.slice(offset).replace(/^ /, '');
+          node.textContent = beforeText;
+          const img = document.createElement('img');
+          img.src = url;
+          img.alt = ':' + name + ':';
+          img.title = ':' + name + ':';
+          img.dataset.token = insert;
+          if (isSticker) img.dataset.sticker = '1';
+          img.contentEditable = 'false';
+          const spaceNode = document.createTextNode(' ' + afterText);
+          const parent = node.parentNode || editor;
+          const nextSibling = node.nextSibling;
+          parent.insertBefore(img, nextSibling);
+          parent.insertBefore(spaceNode, nextSibling);
+          const range = document.createRange();
+          range.setStart(spaceNode, 1);
+          range.collapse(true);
+          selection.removeAllRanges();
+          selection.addRange(range);
+          editor.focus();
+          post('input');
+          return;
+        }
+        const inserted = insert + ' ';
+        node.textContent = text.slice(0, colon) + inserted + text.slice(offset).replace(/^ /, '');
+        const range = document.createRange();
+        range.setStart(node, colon + inserted.length);
+        range.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        editor.focus();
+        post('input');
+      },
       // Swap the "@query" right before the caret for a picked mention.
       replaceMention(insert) {
         const selection = window.getSelection();
@@ -428,6 +485,7 @@ export function MobileComposer({
   const [voiceUri, setVoiceUri] = useState<string | null>(null);
   const [voiceSending, setVoiceSending] = useState(false);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [emoteQuery, setEmoteQuery] = useState<string | null>(null);
   const [mentionRoles, setMentionRoles] = useState<Role[]>([]);
   const mentionMembers = usePresenceStore((s) => s.allMembers);
   const mentionAlias = useAuthStore((s) => s.serverInfo?.mentionAlias);
@@ -495,6 +553,10 @@ export function MobileComposer({
   const mentionSuggestions = useMemo(
     () => (mentionQuery === null ? [] : buildMentionSuggestions(mentionQuery, mentionMembers, mentionRoles, mentionAlias)),
     [mentionAlias, mentionMembers, mentionQuery, mentionRoles],
+  );
+  const emoteSuggestions = useMemo(
+    () => (emoteQuery === null ? [] : buildEmoteSuggestions(emoteQuery, effectiveExpressionLookup, effectiveServerUrl)),
+    [emoteQuery, effectiveExpressionLookup, effectiveServerUrl],
   );
 
   const inputHtml = useMemo(
@@ -643,12 +705,38 @@ export function MobileComposer({
     webValueRef.current = '';
     webReportedRef.current.clear();
     setMentionQuery(null);
+    setEmoteQuery(null);
     injectComposerCommand('clear', []);
   };
 
   const selectMention = (item: MentionSuggestion) => {
     setMentionQuery(null);
+    if (Platform.OS === 'web') {
+      const next = value.replace(/(?:^|\s)@[^\s@]*$/, (m) => (m.startsWith(' ') ? ' ' : '') + item.insert + ' ');
+      webValueRef.current = next;
+      onChangeText(next);
+      return;
+    }
     injectComposerCommand('replaceMention', [item.insert]);
+  };
+
+  const selectEmoteSuggestion = (item: EmoteSuggestion) => {
+    setEmoteQuery(null);
+    if (Platform.OS === 'web') {
+      const next = value.replace(/(?:^|\s):[a-z0-9_+-]{2,32}$/i, (m) => {
+        const leading = /^\s/.test(m) ? m[0] : '';
+        return leading + item.insert + ' ';
+      });
+      webValueRef.current = next;
+      onChangeText(next);
+      return;
+    }
+    injectComposerCommand('replaceEmote', [
+      item.insert,
+      item.previewImage ?? null,
+      item.name ?? '',
+      Boolean(item.isSticker),
+    ]);
   };
 
   const invokeBotCommand = async (command: BotCommand, options: Record<string, string | number | boolean>): Promise<boolean> => {
@@ -769,7 +857,11 @@ export function MobileComposer({
         setEditorHeight(Math.max(40, Math.min(120, message.height)));
       }
       if (message.type === 'input') {
-        setMentionQuery(mentionsEnabled && typeof message.beforeCaret === 'string'
+        const nextEmoteQ = typeof message.beforeCaret === 'string'
+          ? activeEmoteQuery(message.beforeCaret)
+          : null;
+        setEmoteQuery(nextEmoteQ);
+        setMentionQuery(!nextEmoteQ && mentionsEnabled && typeof message.beforeCaret === 'string'
           ? activeMentionQuery(message.beforeCaret)
           : null);
         webValueRef.current = message.value;
@@ -842,7 +934,9 @@ export function MobileComposer({
           <Text variant="caption" color={theme.colors.accent}>{typedCommand.options.length ? 'Fill options' : 'Ready'}</Text>
         </TouchableOpacity>
       ) : null}
-      {mentionsEnabled && !voiceRecording ? (
+      {!voiceRecording && emoteSuggestions.length > 0 ? (
+        <EmoteSuggestionList items={emoteSuggestions} onSelect={selectEmoteSuggestion} />
+      ) : mentionsEnabled && !voiceRecording ? (
         <MentionSuggestionList items={mentionSuggestions} serverUrl={effectiveServerUrl} onSelect={selectMention} />
       ) : null}
       <Animated.View
@@ -878,9 +972,12 @@ export function MobileComposer({
             {Platform.OS === 'web' ? (
               <TextInput
                 value={value}
-                onChangeText={(next) => {
+                onChangeText={(rawNext) => {
+                  const next = replaceCompletedEmojiShortcodes(rawNext, effectiveExpressionLookup);
                   webValueRef.current = next;
-                  setMentionQuery(mentionsEnabled ? activeMentionQuery(next) : null);
+                  const nextEmoteQ = activeEmoteQuery(next);
+                  setEmoteQuery(nextEmoteQ);
+                  setMentionQuery(!nextEmoteQ && mentionsEnabled ? activeMentionQuery(next) : null);
                   onChangeText(next);
                 }}
                 placeholder={allowText ? placeholder : t('chat.attachmentsOnly')}
@@ -889,6 +986,11 @@ export function MobileComposer({
                 multiline
                 onKeyPress={(e) => {
                   const ne = e.nativeEvent as { key?: string; shiftKey?: boolean };
+                  if ((ne.key === 'Tab' || (ne.key === 'Enter' && !ne.shiftKey)) && emoteSuggestions.length > 0) {
+                    e.preventDefault?.();
+                    selectEmoteSuggestion(emoteSuggestions[0]);
+                    return;
+                  }
                   if (ne.key === 'Enter' && !ne.shiftKey) {
                     e.preventDefault?.();
                     handleSend();
