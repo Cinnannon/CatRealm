@@ -15,7 +15,7 @@ import { HeadphoneOff, Hash, Menu, MessageSquareText, MicOff, Monitor, Search, S
 import axios from 'axios';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/theme';
-import { Text, IconBtn, Avatar, BotBadge, MobileComposer, Pressable, ConnectedChannelPulse, useConnectedChannelIds, TranslatableMarkdownText, MessageActionSheet, Sheet, ChannelIcon, ServerRulesView, ServerListPanel, DrawerLeftRail, DrawerHubFooter, SwipeableMessageRow, SwipeSidebarContainer } from '@/components';
+import { Text, IconBtn, Avatar, BotBadge, MobileComposer, Pressable, ConnectedChannelPulse, useConnectedChannelIds, TranslatableMarkdownText, MessageActionSheet, Sheet, ChannelIcon, ServerRulesView, ForumChannelView, ServerListPanel, DrawerLeftRail, DrawerHubFooter, SwipeableMessageRow, SwipeSidebarContainer } from '@/components';
 import { VoiceChannelContent } from '@/components/VoiceChannelContent';
 import { useServerStore } from '@/stores/serverStore';
 import { useMessageStore } from '@/stores/messageStore';
@@ -1388,6 +1388,18 @@ export default function ChannelScreen() {
                 serverName={server?.name ?? ''}
                 serverIcon={server?.iconUrl}
               />
+            ) : channel?.type === 'forum' ? (
+              <SwipeSidebarContainer onOpenSidebar={() => setChannelsSheetOpen(true)} disabled={isTablet}>
+                <ForumChannelView
+                  channel={channel}
+                  serverId={serverId ?? ''}
+                  serverUrl={channelServerUrl}
+                  serverToken={server?.token}
+                  expressionLookup={expressionLookup}
+                  canUseExternalEmotes={canUseExternalEmotes}
+                  canUseExternalStickers={canUseExternalStickers}
+                />
+              </SwipeSidebarContainer>
             ) : (
               <>
             {/* Message list (inverted so newest is at bottom) */}

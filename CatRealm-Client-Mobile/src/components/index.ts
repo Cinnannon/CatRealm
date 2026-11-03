@@ -37,3 +37,4 @@ export { AuthBackdrop } from './AuthBackdrop';
 export { AuthCard, AuthScreenHeader, AuthScreenShell, AuthTabRow } from './AuthScreenShell';
 export { CallOverlay } from './CallOverlay';
 export { SwipeableMessageRow, SwipeSidebarContainer } from './SwipeableMessageRow';
+export { ForumChannelView } from './ForumChannelView';
