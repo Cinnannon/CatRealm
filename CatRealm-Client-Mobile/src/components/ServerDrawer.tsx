@@ -39,20 +39,34 @@ export function ServerDrawer() {
 
   const drawerWidth = isTablet ? Math.min(440, Math.max(360, Math.floor(viewportWidth * 0.38))) : DRAWER_WIDTH;
 
-  const { slideAnim, fadeAnim, mounted } = useDrawerTransition(open, drawerWidth, () => finishDrawerClose('servers'), closeRequested);
+  const { slideAnim, fadeAnim, mounted } = useDrawerTransition(open, drawerWidth, () => finishDrawerClose('servers'), closeRequested, 'servers');
   const closePanResponder = useMemo(
     () =>
       PanResponder.create({
         onStartShouldSetPanResponder: () => false,
         onMoveShouldSetPanResponder: (_evt, g) =>
-          g.dx < -14 && Math.abs(g.dx) > Math.abs(g.dy) * 1.4,
-        onPanResponderRelease: (_evt, g) => {
-          if (g.dx < -46 || (g.dx < -24 && g.vx < -0.45)) {
+          g.dx < -10 && Math.abs(g.dx) > Math.abs(g.dy) * 1.3,
+        onPanResponderMove: (_evt, g) => {
+          if (g.dx >= 0) return;
+          if (g.dx <= -48) {
             setOpen(false);
+            return;
+          }
+          slideAnim.setValue(Math.max(-drawerWidth, g.dx));
+          fadeAnim.setValue(Math.max(0, 1 + g.dx / Math.max(1, drawerWidth)));
+        },
+        onPanResponderRelease: (_evt, g) => {
+          if (g.dx <= -38 || (g.dx < -20 && g.vx < -0.35)) {
+            setOpen(false);
+          } else if (open) {
+            Animated.parallel([
+              Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, damping: 22, stiffness: 260 }),
+              Animated.timing(fadeAnim, { toValue: 1, duration: 120, useNativeDriver: true }),
+            ]).start();
           }
         },
       }),
-    [setOpen],
+    [setOpen, slideAnim, fadeAnim, drawerWidth, open],
   );
 
   const inServerChannelOnTablet = isTablet && pathname.startsWith('/server/');
