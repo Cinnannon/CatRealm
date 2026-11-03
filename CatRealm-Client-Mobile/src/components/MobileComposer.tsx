@@ -449,7 +449,7 @@ export function MobileComposer({
   // While typing fast, an effect from an older render can run after a newer
   // keystroke arrived; its stale `value` must not be written back over the editor.
   const webReportedRef = useRef(new Set<string>());
-  const animStyle = useAnimatedStyle(() => ({ paddingBottom: bottomInset.value }));
+  const animStyle = useAnimatedStyle(() => ({ paddingBottom: Math.max(14, bottomInset.value + 10) }));
   const effectiveExpressionLookup = useMemo(
     () => filterExpressionLookup(pickerExpressionLookup ?? expressionLookup, effectiveServerUrl, canUseExternalEmotes, canUseExternalStickers),
     [pickerExpressionLookup, expressionLookup, effectiveServerUrl, canUseExternalEmotes, canUseExternalStickers],
@@ -1018,26 +1018,27 @@ const styles = StyleSheet.create({
   },
   wrap: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
+    alignItems: 'center',
     gap: 6,
     borderTopWidth: 1,
-    paddingHorizontal: 8,
-    paddingTop: 8,
+    paddingHorizontal: 10,
+    paddingTop: 10,
   },
   inputShell: {
     flex: 1,
-    minHeight: 42,
+    minHeight: 44,
     maxHeight: 132,
     flexDirection: 'row',
-    alignItems: 'flex-end',
+    alignItems: 'center',
     borderWidth: 1,
     paddingLeft: 12,
+    paddingRight: 4,
   },
   inputArea: {
     flex: 1,
     minHeight: 40,
     maxHeight: 120,
-    justifyContent: 'flex-end',
+    justifyContent: 'center',
   },
   editorContainer: {
     flex: 0,
