@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Animated } from 'react-native';
+import { useUIStore } from '@/stores/uiStore';
 
 interface DrawerLiveHandle {
   kind: 'channels' | 'servers';
@@ -17,6 +18,8 @@ const liveHandles = new Set<DrawerLiveHandle>();
  * and follows the user's thumb before they lift their finger.
  */
 export function beginDrawerOpenDrag() {
+  const ui = useUIStore.getState();
+  if (ui.channelsSheetOpen || ui.serverDrawerOpen || ui.closingDrawer) return;
   for (const h of liveHandles) {
     if (h.kind === 'channels' && !h.open) {
       h.setDragging(true);
@@ -30,6 +33,8 @@ export function beginDrawerOpenDrag() {
  * Updates the channels drawer's horizontal translation in real time as the thumb moves right (`dx > 0`).
  */
 export function updateDrawerOpenDrag(dx: number) {
+  const ui = useUIStore.getState();
+  if (ui.channelsSheetOpen || ui.serverDrawerOpen || ui.closingDrawer) return;
   const clampedDx = Math.max(0, dx);
   for (const h of liveHandles) {
     if (h.kind === 'channels' && !h.open) {
@@ -45,6 +50,7 @@ export function updateDrawerOpenDrag(dx: number) {
  * Finishes a live interactive open-drag, animating to open (`0`) or back to closed (`-width`).
  */
 export function endDrawerOpenDrag(shouldOpen: boolean, onConfirmOpen: () => void) {
+  const ui = useUIStore.getState();
   if (shouldOpen) {
     onConfirmOpen();
     for (const h of liveHandles) {
@@ -59,6 +65,30 @@ export function endDrawerOpenDrag(shouldOpen: boolean, onConfirmOpen: () => void
           Animated.timing(h.fadeAnim, {
             toValue: 1,
             duration: 140,
+            useNativeDriver: true,
+          }),
+        ]).start(() => {
+          h.setDragging(false);
+        });
+      }
+    }
+    return;
+  }
+
+  // If already open, do not animate to -width! Keep open at 0.
+  if (ui.channelsSheetOpen || ui.serverDrawerOpen) {
+    for (const h of liveHandles) {
+      if (h.kind === 'channels') {
+        Animated.parallel([
+          Animated.spring(h.slideAnim, {
+            toValue: 0,
+            useNativeDriver: true,
+            damping: 22,
+            stiffness: 260,
+          }),
+          Animated.timing(h.fadeAnim, {
+            toValue: 1,
+            duration: 120,
             useNativeDriver: true,
           }),
         ]).start(() => {

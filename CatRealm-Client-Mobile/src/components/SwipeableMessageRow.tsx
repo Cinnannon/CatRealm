@@ -121,6 +121,7 @@ export function SwipeableMessageRow({
           drawerOpenedDuringMoveRef.current = false;
         },
         onPanResponderMove: (_evt, gestureState) => {
+          if (isAnySidebarOpen() && drawerOpenedDuringMoveRef.current) return;
           const { dx } = gestureState;
 
           if (gestureModeRef.current === null) {
@@ -136,8 +137,10 @@ export function SwipeableMessageRow({
           if (isAnySidebarOpen()) {
             if (gestureModeRef.current === 'reply') {
               translateX.setValue(0);
-              gestureModeRef.current = null;
             }
+            gestureModeRef.current = null;
+            drawerDragStartedRef.current = false;
+            drawerOpenedDuringMoveRef.current = false;
             return;
           }
 
@@ -320,6 +323,7 @@ export function SwipeSidebarContainer({
           peakDxRef.current = 0;
         },
         onPanResponderMove: (_evt, gestureState) => {
+          if (isAnySidebarOpen() && drawerOpenedDuringMoveRef.current) return;
           const { dx } = gestureState;
           peakDxRef.current = Math.max(peakDxRef.current, dx);
           if (!drawerDragStartedRef.current && dx > 0) {

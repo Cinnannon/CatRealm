@@ -45,7 +45,7 @@ export function ServerDrawer() {
       PanResponder.create({
         onStartShouldSetPanResponder: () => false,
         onMoveShouldSetPanResponder: (_evt, g) =>
-          open && g.dx < -10 && Math.abs(g.dx) > Math.abs(g.dy) * 1.25,
+          open && Math.abs(g.dx) > 10 && Math.abs(g.dx) > Math.abs(g.dy) * 1.25,
         onPanResponderMove: (_evt, g) => {
           if (g.dx >= 0) {
             slideAnim.setValue(0);
@@ -64,7 +64,7 @@ export function ServerDrawer() {
             ]).start(() => {
               setOpen(false);
             });
-          } else if (open) {
+          } else {
             Animated.parallel([
               Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, damping: 22, stiffness: 260 }),
               Animated.timing(fadeAnim, { toValue: 1, duration: 120, useNativeDriver: true }),
@@ -72,12 +72,10 @@ export function ServerDrawer() {
           }
         },
         onPanResponderTerminate: () => {
-          if (open) {
-            Animated.parallel([
-              Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, damping: 22, stiffness: 260 }),
-              Animated.timing(fadeAnim, { toValue: 1, duration: 120, useNativeDriver: true }),
-            ]).start();
-          }
+          Animated.parallel([
+            Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, damping: 22, stiffness: 260 }),
+            Animated.timing(fadeAnim, { toValue: 1, duration: 120, useNativeDriver: true }),
+          ]).start();
         },
       }),
     [open, drawerWidth, slideAnim, fadeAnim, setOpen],
