@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Image, StyleSheet, Switch, TouchableOpacity, View } from 'react-native';
+import { Alert, Image, Platform, StyleSheet, Switch, TextInput, TouchableOpacity, View } from 'react-native';
 import Animated, {
   useAnimatedStyle,
   type SharedValue,
@@ -875,22 +875,56 @@ export function MobileComposer({
           ]}
         >
           <View style={styles.inputArea}>
-            <WebView<object>
-              ref={webRef}
-              originWhitelist={['*']}
-              source={{ html: inputHtml }}
-              onMessage={handleEditorMessage}
-              onLoadEnd={() => injectComposerCommand('setText', [value])}
-              javaScriptEnabled
-              scrollEnabled={false}
-              hideKeyboardAccessoryView
-              keyboardDisplayRequiresUserAction={false}
-              style={[styles.editorWebView, { height: editorHeight }]}
-              containerStyle={[styles.editorContainer, { height: editorHeight }]}
-              automaticallyAdjustContentInsets={false}
-              showsHorizontalScrollIndicator={false}
-              showsVerticalScrollIndicator={false}
-            />
+            {Platform.OS === 'web' ? (
+              <TextInput
+                value={value}
+                onChangeText={(next) => {
+                  webValueRef.current = next;
+                  setMentionQuery(mentionsEnabled ? activeMentionQuery(next) : null);
+                  onChangeText(next);
+                }}
+                placeholder={allowText ? placeholder : t('chat.attachmentsOnly')}
+                placeholderTextColor={theme.colors.text3}
+                editable={!disabled && allowText}
+                multiline
+                onKeyPress={(e) => {
+                  const ne = e.nativeEvent as { key?: string; shiftKey?: boolean };
+                  if (ne.key === 'Enter' && !ne.shiftKey) {
+                    e.preventDefault?.();
+                    handleSend();
+                  }
+                }}
+                style={[
+                  styles.editorWebView,
+                  {
+                    minHeight: 40,
+                    maxHeight: 120,
+                    color: theme.colors.text,
+                    fontSize: 15,
+                    paddingHorizontal: 10,
+                    paddingVertical: 9,
+                    outlineStyle: 'none',
+                  } as object,
+                ]}
+              />
+            ) : (
+              <WebView<object>
+                ref={webRef}
+                originWhitelist={['*']}
+                source={{ html: inputHtml }}
+                onMessage={handleEditorMessage}
+                onLoadEnd={() => injectComposerCommand('setText', [value])}
+                javaScriptEnabled
+                scrollEnabled={false}
+                hideKeyboardAccessoryView
+                keyboardDisplayRequiresUserAction={false}
+                style={[styles.editorWebView, { height: editorHeight }]}
+                containerStyle={[styles.editorContainer, { height: editorHeight }]}
+                automaticallyAdjustContentInsets={false}
+                showsHorizontalScrollIndicator={false}
+                showsVerticalScrollIndicator={false}
+              />
+            )}
           </View>
           <IconBtn
             icon={Smile}
